@@ -1,9 +1,9 @@
-﻿{
+{
   "name": "awangbotv3",
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "hono": "^4.0.0"
+    "hono": "^4.13.9"
   },
   "devDependencies": {
     "wrangler": "^3.0.0"

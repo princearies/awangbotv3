@@ -2,17 +2,20 @@ import { Hono } from 'hono';
 
 const app = new Hono();
 
-// Helper hantar mesej Telegram
-async function sendTelegramMessage(token, chatId, text) {
+// Helper hantar mesej Telegram (ditambah sokongan butang/reply_markup)
+async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const payload = { chat_id: chatId, text, parse_mode: 'HTML' };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+
   await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    body: JSON.stringify(payload),
   });
 }
 
-// 1. Web App Frontend (Smartphone Friendly Form)
+// 1. Web App Frontend (Borang Pesanan)
 app.get('/', (c) => {
   const html = `
     <!DOCTYPE html>
@@ -20,7 +23,7 @@ app.get('/', (c) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Borang Pesanan</title>
+      <title>Borang Pesanan AwangBot</title>
       <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-gray-100 min-h-screen p-4 flex justify-center items-center">
@@ -61,16 +64,13 @@ app.post('/order', async (c) => {
   const phone = String(body['phone'] || '');
   const produk = String(body['produk'] || '');
   
-  // Jana ID unik dan timestamp
   const orderId = 'ORD-' + Date.now();
   const createdAt = new Date().toISOString();
 
-  // Simpan terus ke D1 mengikut schema sedia ada
   await c.env.DB.prepare(
     `INSERT INTO orders (id, nama, phone, produk, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(orderId, nama, phone, produk, 'pending', createdAt).run();
 
-  // Notifikasi Mesej Telegram kepada Admin
   const adminMsg = `🚨 <b>PESANAN BARU #${orderId}</b>\n\n` +
                    `👤 <b>Nama:</b> ${nama}\n` +
                    `📞 <b>Telefon:</b> ${phone}\n` +
@@ -88,21 +88,39 @@ app.post('/order', async (c) => {
   `);
 });
 
-// 3. Webhook Telegram Bot
+// 3. Webhook Telegram Bot (Mesra & Interaktif)
 app.post('/webhook', async (c) => {
   const update = await c.req.json();
 
+  // A. Terima Callback dari Butang Inline Keyboard
+  if (update.callback_query) {
+    const chatId = String(update.callback_query.message.chat.id);
+    const data = update.callback_query.data;
+
+    if (data === 'info_pakej') {
+      const msg = `📦 <b>SENARAI PAKEJ & HARGA:</b>\n\n` +
+                  `• <b>Pakej A:</b> RM50 (Asas)\n` +
+                  `• <b>Pakej B:</b> RM90 (Popular)\n` +
+                  `• <b>Pakej C:</b> RM130 (Premium)\n\n` +
+                  `Tekan butang di bawah untuk buat pesanan terus!`;
+      const buttons = {
+        inline_keyboard: [
+          [{ text: '🛒 Buat Pesanan Sekarang', url: 'https://awangbotv3.mykira.workers.dev' }]
+        ]
+      };
+      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, msg, buttons);
+    }
+    return c.text('OK');
+  }
+
+  // B. Terima Mesej Teks dari Pelanggan
   if (update.message && update.message.text) {
     const chatId = String(update.message.chat.id);
     const text = update.message.text.trim();
+    const lowerText = text.toLowerCase();
 
-    if (text === '/start') {
-      await sendTelegramMessage(
-        c.env.BOT_TOKEN,
-        chatId,
-        `Selamat datang ke Bot Awang! 🤖\n\nGunakan borang web untuk membuat pesanan.`
-      );
-    } else if (text === '/orders' && chatId === c.env.ADMIN_ID) {
+    // Menu Arahan Admin
+    if (text === '/orders' && chatId === c.env.ADMIN_ID) {
       const { results } = await c.env.DB.prepare(
         `SELECT * FROM orders ORDER BY created_at DESC LIMIT 5`
       ).all();
@@ -116,6 +134,47 @@ app.post('/webhook', async (c) => {
         });
         await sendTelegramMessage(c.env.BOT_TOKEN, chatId, msg);
       }
+      return c.text('OK');
+    }
+
+    // Sambutan /start atau Hi
+    if (text === '/start' || lowerText.includes('hi') || lowerText.includes('hello') || lowerText.includes('salam')) {
+      const welcomeMsg = `👋 <b>Hai! Selamat datang ke AwangBot.</b>\n\n` +
+                         `Ada apa yang boleh kami bantu anda hari ini? Sila pilih menu di bawah:`;
+      const buttons = {
+        inline_keyboard: [
+          [{ text: '🛒 Buat Pesanan (Borang Web)', url: 'https://awangbotv3.mykira.workers.dev' }],
+          [{ text: '📦 Lihat Pakej & Harga', callback_data: 'info_pakej' }]
+        ]
+      };
+      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, welcomeMsg, buttons);
+    } 
+    // Mesej Kata Kunci (Keywords Auto-Reply)
+    else if (lowerText.includes('harga') || lowerText.includes('pakej') || lowerText.includes('harga berapa')) {
+      const msg = `📦 <b>Senarai Pakej Kami:</b>\n- Pakej A\n- Pakej B\n- Pakej C\n\nSila klik butang di bawah untuk isi borang pesanan.`;
+      const buttons = {
+        inline_keyboard: [[{ text: '🛒 Isi Borang Pesanan', url: 'https://awangbotv3.mykira.workers.dev' }]]
+      };
+      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, msg, buttons);
+    } 
+    else if (lowerText.includes('order') || lowerText.includes('beli') || lowerText.includes('pesan')) {
+      const msg = `Sila klik pautan ini untuk mengisi borang pesanan rasmi kami:`;
+      const buttons = {
+        inline_keyboard: [[{ text: '🛒 Buka Borang Pesanan', url: 'https://awangbotv3.mykira.workers.dev' }]]
+      };
+      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, msg, buttons);
+    } 
+    // Balasan Lalai (Default Reply) jika bot tak faham
+    else {
+      const defaultMsg = `Terima kasih kerana menghubungi kami! 😊\n\n` +
+                         `Untuk membuat pesanan atau menyemak pakej, sila tekan butang di bawah:`;
+      const buttons = {
+        inline_keyboard: [
+          [{ text: '🛒 Buat Pesanan', url: 'https://awangbotv3.mykira.workers.dev' }],
+          [{ text: '📦 Semak Pakej', callback_data: 'info_pakej' }]
+        ]
+      };
+      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, defaultMsg, buttons);
     }
   }
 

@@ -10,3 +10,6 @@ BOT_TOKEN = "8974736721:AAGzhBXhOTYQcWv6Abv0HFlnpwVKnIBlqE8"
 binding = "DB"
 database_name = "awangbot78"
 database_id = "fbb03f11-eaf8-4063-8d73-d7e377c9fc24"
+
+[ai]
+binding = "AI"

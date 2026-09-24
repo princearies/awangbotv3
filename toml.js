@@ -1,0 +1,12 @@
+name = "awangbot-telegram"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+ADMIN_ID = "5495392497"
+BOT_TOKEN = "8974736721:AAGzhBXhOTYQcWv6Abv0HFlnpwVKnIBlqE8"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "awangbot78"
+database_id = "fbb03f11-eaf8-4063-8d73-d7e377c9fc24"

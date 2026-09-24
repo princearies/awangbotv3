@@ -1,8 +1,7 @@
-import { Hono } from 'hono';
+﻿import { Hono } from 'hono';
 
 const app = new Hono();
 
-// Helper hantar mesej Telegram
 async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   const payload = { chat_id: chatId, text, parse_mode: 'HTML' };
@@ -15,7 +14,6 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   });
 }
 
-// 1. Web App Frontend (Borang Pesanan)
 app.get('/', (c) => {
   const html = `
     <!DOCTYPE html>
@@ -56,14 +54,11 @@ app.get('/', (c) => {
   return c.html(html);
 });
 
-// 2. Endpoint Terima Form & Simpan ke D1
 app.post('/order', async (c) => {
   const body = await c.req.parseBody();
-  
   const nama = String(body['nama'] || '');
   const phone = String(body['phone'] || '');
   const produk = String(body['produk'] || '');
-  
   const orderId = 'ORD-' + Date.now();
   const createdAt = new Date().toISOString();
 
@@ -88,11 +83,9 @@ app.post('/order', async (c) => {
   `);
 });
 
-// 3. Webhook Telegram Bot (Integrasi AI)
 app.post('/webhook', async (c) => {
   const update = await c.req.json();
 
-  // A. Terima Callback dari Butang Inline
   if (update.callback_query) {
     const chatId = String(update.callback_query.message.chat.id);
     const data = update.callback_query.data;
@@ -113,12 +106,10 @@ app.post('/webhook', async (c) => {
     return c.text('OK');
   }
 
-  // B. Terima Mesej Teks dari Pelanggan
   if (update.message && update.message.text) {
     const chatId = String(update.message.chat.id);
     const text = update.message.text.trim();
 
-    // Command Admin (/orders)
     if (text === '/orders' && chatId === c.env.ADMIN_ID) {
       const { results } = await c.env.DB.prepare(
         `SELECT * FROM orders ORDER BY created_at DESC LIMIT 5`
@@ -136,7 +127,6 @@ app.post('/webhook', async (c) => {
       return c.text('OK');
     }
 
-    // Command /start
     if (text === '/start') {
       const welcomeMsg = `👋 <b>Hai! Saya ialah Pembantu AI AwangBot.</b>\n\n` +
                          `Anda boleh tanya apa sahaja soalan berkenaan pakej, harga, atau cara pembelian. ` +
@@ -151,7 +141,6 @@ app.post('/webhook', async (c) => {
       return c.text('OK');
     }
 
-    // Mesej Lain -> Dijawab Oleh Cloudflare Workers AI
     try {
       const aiResponse = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
         messages: [
@@ -184,7 +173,6 @@ Arahan Panduan:
       await sendTelegramMessage(c.env.BOT_TOKEN, chatId, replyText, buttons);
 
     } catch (err) {
-      // Fallback sekiranya AI sibuk
       const fallbackMsg = `Terima kasih kerana menghubungi kami! Sila klik butang di bawah untuk melihat pilihan pakej atau membuat pesanan:`;
       const buttons = {
         inline_keyboard: [

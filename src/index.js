@@ -2,6 +2,7 @@
 
 const app = new Hono();
 
+// Prompt asal untuk AwangBot78
 const SYSTEM_PROMPT = `
 Anda ialah Pembantu AI untuk AwangBot78 — perniagaan yang MEMBINA BOT AI KUSTOM untuk pelbagai jenis pelanggan.
 
@@ -19,6 +20,17 @@ Arahan jawapan:
 - Jawab ringkas dalam Bahasa Melayu (2-3 ayat).
 - TANYA apa fungsi/jenis bot yang mereka nak.
 - Jangan sebut pasal penghantaran fizikal.
+`;
+
+// Prompt khas untuk CikguBot Demo
+const CIKGU_SYSTEM_PROMPT = `
+Anda ialah CikguBot — Tutor AI mesra dan pintar untuk pelajar sekolah/tuisyen di Malaysia.
+
+Peranan anda:
+- Membantu menerangkan soalan pelajaran (Matematik, Sains, Sejarah, Bahasa Melayu, Bahasa Inggeris, dll).
+- Memberi penjelasan yang mudah difahami, bersikap mesra, bersemangat dan sabar.
+- Gunakan bahasa Melayu yang sopan (gunakan panggilan "Cikgu" atau "CikguBot" dan panggil pengguna "pelajar" atau "adik").
+- Jika soalan perlukan langkah penyelesaian (seperti Matematik), tunjukkan langkah ringkas satu per satu.
 `;
 
 function escapeHtml(value = '') {
@@ -70,7 +82,7 @@ app.get('/', (c) => {
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>AwangBot78 - Live Chat & PoC Portal</title>
+      <title>AwangBot78 - Live Chat & CikguBot Portal</title>
       <script src="https://cdn.tailwindcss.com"></script>
       <style>
         body { background: #020817; }
@@ -87,18 +99,18 @@ app.get('/', (c) => {
           <!-- TAB BUTTONS -->
           <div class="flex gap-1 rounded-xl bg-slate-900 p-1 border border-slate-700 text-xs">
             <button type="button" data-tab="chat" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition bg-blue-600 text-white">💬 Live Chat</button>
-            <button type="button" data-tab="poc" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition text-slate-400 hover:text-white">🧪 PoC Demo</button>
+            <button type="button" data-tab="cikgu" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition text-slate-400 hover:text-white">👨‍🏫 CikguBot Demo</button>
             <button type="button" data-tab="form" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition text-slate-400 hover:text-white">📝 Permohonan</button>
           </div>
         </header>
 
-        <!-- TAB 1: LIVE CHAT (ASAL) -->
+        <!-- TAB 1: LIVE CHAT (AWANGBOT78) -->
         <section id="tab-chat" class="tab-panel flex flex-col flex-1 overflow-hidden">
           <div id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
             <div class="flex items-start">
               <div class="max-w-[85%] bg-blue-600/30 border border-blue-500/30 p-3 rounded-2xl text-sm">
                 👋 <b>Hai! Saya AwangBot78.</b><br>
-                Tanya saya tentang bot anda, atau guna tab <b>PoC Demo</b> untuk uji percubaan bot tanpa sambung ke Telegram/WhatsApp!
+                Tanya saya tentang tempahan bot custom, atau cuba tab <b>CikguBot Demo</b> untuk lihat contoh bot latihan!
               </div>
             </div>
           </div>
@@ -113,7 +125,7 @@ app.get('/', (c) => {
                 id="user-input"
                 type="text"
                 required
-                placeholder="Taip soalan anda di sini..."
+                placeholder="Taip soalan tempahan bot..."
                 class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
               />
               <button
@@ -126,45 +138,46 @@ app.get('/', (c) => {
           </div>
         </section>
 
-        <!-- TAB 2: PROOF OF CONCEPT (POC DEMO - TAB BAHARU) -->
-        <section id="tab-poc" class="tab-panel hidden flex flex-col flex-1 overflow-hidden">
-          <div class="p-3 bg-slate-900/60 border-b border-slate-700/50 text-xs text-slate-300">
-            ⚡ <b>Proof of Concept Sandbox:</b> Uji fungsi bot secara terus di sini tanpa memerlukan integrasi ke Telegram atau WhatsApp.
+        <!-- TAB 2: CIKGUBOT DEMO (LIVE WORKING BOT) -->
+        <section id="tab-cikgu" class="tab-panel hidden flex flex-col flex-1 overflow-hidden">
+          <div class="p-3 bg-emerald-950/50 border-b border-emerald-800/50 text-xs text-emerald-300 flex items-center justify-between">
+            <span>📚 <b>CikguBot (Tutor AI):</b> Sedia membantu soalan subjek Sekolah/Tuisyen!</span>
+            <span class="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">Aktif</span>
           </div>
 
-          <div id="poc-chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
+          <div id="cikgu-chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
             <div class="flex items-start">
-              <div class="max-w-[85%] bg-purple-600/30 border border-purple-500/30 p-3 rounded-2xl text-sm">
-                🧪 <b>Mod Simulasi Bot (PoC Mode)</b><br>
-                Hantar sebarang mesej pengujian di bawah untuk melihat makbal balas AI tempatan (Cloudflare Workers AI) secara terus.
+              <div class="max-w-[85%] bg-emerald-600/20 border border-emerald-500/30 p-3 rounded-2xl text-sm">
+                👨‍🏫 <b>Selamat datang ke CikguBot!</b><br>
+                Saya ialah Pembantu Tutor AI. Tanya saya apa sahaja soalan Matematik, Sains, Sejarah atau Bahasa Melayu!
               </div>
             </div>
           </div>
 
-          <div id="poc-loading" class="hidden px-4 py-1 text-xs text-slate-400 italic">
-            PoC Bot sedang memproses...
+          <div id="cikgu-loading" class="hidden px-4 py-1 text-xs text-emerald-400 italic">
+            CikguBot sedang memikirkan jawapan...
           </div>
 
           <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="poc-form" class="flex gap-2">
+            <form id="cikgu-form" class="flex gap-2">
               <input
-                id="poc-input"
+                id="cikgu-input"
                 type="text"
                 required
-                placeholder="Uji mesej PoC di sini..."
-                class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500"
+                placeholder="Tanya soalan pelajaran di sini..."
+                class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
               />
               <button
                 type="submit"
-                class="bg-purple-600 hover:bg-purple-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+                class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
               >
-                Uji Bot
+                Tanya Cikgu
               </button>
             </form>
           </div>
         </section>
 
-        <!-- TAB 3: BORANG PERMOHONAN (ASAL) -->
+        <!-- TAB 3: BORANG PERMOHONAN -->
         <section id="tab-form" class="tab-panel hidden flex-1 overflow-y-auto p-5">
           <h2 class="text-xl font-bold text-blue-400 mb-1">Borang Permohonan Bot Custom</h2>
           <p class="text-xs text-slate-400 mb-4">Isi maklumat di bawah untuk pendaftaran tempahan bot anda.</p>
@@ -214,7 +227,7 @@ app.get('/', (c) => {
         buttons.forEach(function(btn) {
           var active = btn.dataset.tab === tab;
           btn.classList.toggle('bg-blue-600', active && tab === 'chat');
-          btn.classList.toggle('bg-purple-600', active && tab === 'poc');
+          btn.classList.toggle('bg-emerald-600', active && tab === 'cikgu');
           btn.classList.toggle('bg-green-600', active && tab === 'form');
           btn.classList.toggle('text-white', active);
           btn.classList.toggle('text-slate-400', !active);
@@ -226,6 +239,7 @@ app.get('/', (c) => {
         btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
       });
 
+      // LOGIK CHAT AWANGBOT78
       var chatForm = document.getElementById('chat-form');
       var chatBox = document.getElementById('chat-box');
       var userInput = document.getElementById('user-input');
@@ -262,39 +276,40 @@ app.get('/', (c) => {
         }
       });
 
-      var pocForm = document.getElementById('poc-form');
-      var pocChatBox = document.getElementById('poc-chat-box');
-      var pocInput = document.getElementById('poc-input');
-      var pocLoading = document.getElementById('poc-loading');
+      // LOGIK CIKGUBOT CHAT
+      var cikguForm = document.getElementById('cikgu-form');
+      var cikguChatBox = document.getElementById('cikgu-chat-box');
+      var cikguInput = document.getElementById('cikgu-input');
+      var cikguLoading = document.getElementById('cikgu-loading');
 
-      pocForm.addEventListener('submit', async function(event) {
+      cikguForm.addEventListener('submit', async function(event) {
         event.preventDefault();
-        var text = pocInput.value.trim();
+        var text = cikguInput.value.trim();
         if (!text) return;
 
-        var userBubble = '<div class="flex justify-end"><div class="bg-purple-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
-        pocChatBox.insertAdjacentHTML('beforeend', userBubble);
-        pocInput.value = '';
-        pocChatBox.scrollTop = pocChatBox.scrollHeight;
-        pocLoading.classList.remove('hidden');
+        var userBubble = '<div class="flex justify-end"><div class="bg-emerald-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
+        cikguChatBox.insertAdjacentHTML('beforeend', userBubble);
+        cikguInput.value = '';
+        cikguChatBox.scrollTop = cikguChatBox.scrollHeight;
+        cikguLoading.classList.remove('hidden');
 
         try {
-          var response = await fetch('/api/poc-chat', {
+          var response = await fetch('/api/cikgu-chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text }),
           });
           var data = await response.json();
-          if (!response.ok) throw new Error(data?.error || 'Ralat PoC API.');
+          if (!response.ok) throw new Error(data?.error || 'Ralat CikguBot API.');
 
-          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 border border-purple-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">🤖 <b>[PoC Bot]</b><br>' + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
-          pocChatBox.insertAdjacentHTML('beforeend', botBubble);
+          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 border border-emerald-500/40 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">👨‍🏫 <b>[CikguBot]</b><br>' + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
+          cikguChatBox.insertAdjacentHTML('beforeend', botBubble);
         } catch (err) {
-          var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Ralat PoC AI.') + '</div></div>';
-          pocChatBox.insertAdjacentHTML('beforeend', errorBubble);
+          var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Ralat CikguBot AI.') + '</div></div>';
+          cikguChatBox.insertAdjacentHTML('beforeend', errorBubble);
         } finally {
-          pocLoading.classList.add('hidden');
-          pocChatBox.scrollTop = pocChatBox.scrollHeight;
+          cikguLoading.classList.add('hidden');
+          cikguChatBox.scrollTop = cikguChatBox.scrollHeight;
         }
       });
     </script>
@@ -302,6 +317,7 @@ app.get('/', (c) => {
   `);
 });
 
+// ENDPOINT LIVE CHAT ASAL
 app.post('/api/chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -321,7 +337,8 @@ app.post('/api/chat', async (c) => {
   }
 });
 
-app.post('/api/poc-chat', async (c) => {
+// ENDPOINT KHAS CIKGUBOT
+app.post('/api/cikgu-chat', async (c) => {
   try {
     const body = await c.req.json();
     const message = String(body.message || '').trim();
@@ -330,16 +347,18 @@ app.post('/api/poc-chat', async (c) => {
       return c.json({ error: 'Mesej kosong.' }, 400);
     }
 
-    const reply = await askAi(c.env, message);
-    await saveLead(c.env, 'PoC Tester', message);
+    // Menggunakan Prompt Khas CikguBot
+    const reply = await askAi(c.env, message, CIKGU_SYSTEM_PROMPT);
+    await saveLead(c.env, 'CikguBot User', message);
 
     return c.json({ reply });
   } catch (err) {
-    console.error('PoC Chat route error:', err);
-    return c.json({ error: 'Ralat pemprosesan PoC Chat.' }, 500);
+    console.error('CikguBot Chat route error:', err);
+    return c.json({ error: 'Ralat pemprosesan CikguBot Chat.' }, 500);
   }
 });
 
+// ENDPOINT PERMOHONAN
 app.post('/register', async (c) => {
   try {
     const body = await c.req.parseBody();
@@ -380,6 +399,7 @@ app.post('/register', async (c) => {
   }
 });
 
+// WEBHOOK TELEGRAM
 app.post('/webhook', async (c) => {
   try {
     const update = await c.req.json();
@@ -415,6 +435,7 @@ app.post('/webhook', async (c) => {
   return c.text('OK');
 });
 
+// WEBHOOK WHATSAPP
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');

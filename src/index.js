@@ -2,17 +2,19 @@
 import { AWANGBOT_PROMPT } from './prompts/awangbot.js';
 import { CIKGU_PROMPT } from './prompts/cikgu.js';
 import { BANK_PROMPT } from './prompts/bank.js';
+import { INFLUENCER_PROMPT } from './prompts/influencer.js';
 
 // Import Semua Konfigurasi Tab
 import { CHAT_TAB } from './tabs/chat.js';
 import { CIKGU_TAB } from './tabs/cikgu.js';
 import { BANK_TAB } from './tabs/bank.js';
+import { INFLUENCER_TAB } from './tabs/influencer.js';
 import { FORM_TAB } from './tabs/form.js';
 
 const app = new Hono();
 
-// Senarai Tab Aktif Portal
-const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, FORM_TAB];
+// Senarai Tab Aktif Portal (Termasuk InfluencerBot)
+const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, INFLUENCER_TAB, FORM_TAB];
 
 function escapeHtml(value = '') {
   return String(value)
@@ -98,7 +100,7 @@ app.get('/', (c) => {
             <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
             <span class="font-bold text-blue-400 text-sm md:text-base">AwangBot78 Portal</span>
           </div>
-          <div class="flex gap-1 rounded-xl bg-slate-900 p-1 border border-slate-700 text-xs">
+          <div class="flex gap-1 rounded-xl bg-slate-900 p-1 border border-slate-700 text-xs flex-wrap">
             ${navButtons}
           </div>
         </header>
@@ -224,6 +226,13 @@ app.post('/api/bank-chat', async (c) => {
   const body = await c.req.json();
   const reply = await askAi(c.env, String(body.message || '').trim(), BANK_PROMPT);
   await saveLead(c.env, 'BankBot Lead', body.message);
+  return c.json({ reply });
+});
+
+app.post('/api/influencer-chat', async (c) => {
+  const body = await c.req.json();
+  const reply = await askAi(c.env, String(body.message || '').trim(), INFLUENCER_PROMPT);
+  await saveLead(c.env, 'InfluencerBot Lead', body.message);
   return c.json({ reply });
 });
 

@@ -5,6 +5,7 @@ import { BANK_PROMPT } from './prompts/bank.js';
 import { INFLUENCER_PROMPT } from './prompts/influencer.js';
 import { RESTOCATERING_PROMPT } from './prompts/restocatering.js';
 import { PROPERTY_PROMPT } from './prompts/property.js';
+import { PBT_PROMPT } from './prompts/pbt.js';
 
 // Import Semua Konfigurasi Tab
 import { CHAT_TAB } from './tabs/chat.js';
@@ -13,12 +14,13 @@ import { BANK_TAB } from './tabs/bank.js';
 import { INFLUENCER_TAB } from './tabs/influencer.js';
 import { RESTOCATERING_TAB } from './tabs/restocatering.js';
 import { PROPERTY_TAB } from './tabs/property.js';
+import { PBT_TAB } from './tabs/pbt.js';
 import { FORM_TAB } from './tabs/form.js';
 
 const app = new Hono();
 
 // Senarai Tab Aktif Portal
-const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, INFLUENCER_TAB, RESTOCATERING_TAB, PROPERTY_TAB, FORM_TAB];
+const TABS = [CHAT_TAB, PBT_TAB, RESTOCATERING_TAB, PROPERTY_TAB, CIKGU_TAB, BANK_TAB, INFLUENCER_TAB, FORM_TAB];
 
 function escapeHtml(value = '') {
   return String(value)
@@ -117,19 +119,20 @@ app.get('/', (c) => {
           <p class="text-xs text-slate-400 mb-4">Isi maklumat di bawah untuk pendaftaran tempahan bot anda.</p>
           <form id="lead-form" action="/register" method="POST" class="space-y-3">
             <div>
-              <label class="block text-xs font-medium mb-1 text-slate-300">Nama Anda / Syarikat</label>
-              <input name="nama" type="text" required placeholder="Contoh: Ahmad / Kedai Makanan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+              <label class="block text-xs font-medium mb-1 text-slate-300">Nama Anda / Syarikat / Agensi</label>
+              <input name="nama" type="text" required placeholder="Contoh: Ahmad / Pejabat Daerah / Syarikat" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1 text-slate-300">Nombor WhatsApp / Telegram</label>
-              <input name="kontak" type="text" required placeholder="Contoh: 0123456789 atau @ahmad" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+              <label class="block text-xs font-medium mb-1 text-slate-300">Nombor WhatsApp / Telegram / Emel</label>
+              <input name="kontak" type="text" required placeholder="Contoh: 0123456789 atau e-mel" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1 text-slate-300">Pilihan Pakej (Harga Tetap)</label>
+              <label class="block text-xs font-medium mb-1 text-slate-300">Pilihan Pakej</label>
               <select name="pakej" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-                <option value="Pakej A (RM30/bln)">Pakej A (RM30/bln) — Bot Asas FAQ</option>
-                <option value="Pakej B (RM50/bln)">Pakej B (RM50/bln) — Pakej Standard (Popular)</option>
-                <option value="Pakej C (RM90/bln)">Pakej C (RM90/bln) — Bot Full Custom + Listing Update</option>
+                <option value="Pakej A (RM30/bln)">Pakej A (RM30/bln) — Bot Asas FAQ (PKS)</option>
+                <option value="Pakej B (RM50/bln)">Pakej B (RM50/bln) — Pakej Standard (PKS)</option>
+                <option value="Pakej C (RM90/bln)">Pakej C (RM90/bln) — Full Custom (PKS)</option>
+                <option value="Pakej Enterprise / Kerajaan">Pakej Enterprise / Kerajaan (Sebut Harga Khas / Custom Quote)</option>
               </select>
             </div>
             <div>
@@ -216,6 +219,13 @@ app.post('/api/chat', async (c) => {
   const body = await c.req.json();
   const reply = await askAi(c.env, String(body.message || '').trim(), AWANGBOT_PROMPT);
   await saveLead(c.env, 'Web Chat User', body.message);
+  return c.json({ reply });
+});
+
+app.post('/api/pbt-chat', async (c) => {
+  const body = await c.req.json();
+  const reply = await askAi(c.env, String(body.message || '').trim(), PBT_PROMPT);
+  await saveLead(c.env, 'ServisBot PBT Lead', body.message);
   return c.json({ reply });
 });
 

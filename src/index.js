@@ -1,5 +1,8 @@
 ﻿import { Hono } from 'hono';
-import { SYSTEM_PROMPT, CIKGU_SYSTEM_PROMPT } from './prompts.js';
+import { AWANGBOT_PROMPT } from './prompts/awangbot.js';
+import { CIKGU_PROMPT } from './prompts/cikgu.js';
+import { INFLUENCER_PROMPT } from './prompts/influencer.js';
+import { ENTERPRISE_PROMPT } from './prompts/enterprise.js';
 
 const app = new Hono();
 
@@ -27,7 +30,7 @@ async function sendTelegramMessage(token, chatId, text) {
 async function askAi(env, message, customPrompt = null) {
   const ai = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
     messages: [
-      { role: 'system', content: customPrompt || SYSTEM_PROMPT },
+      { role: 'system', content: customPrompt || AWANGBOT_PROMPT },
       { role: 'user', content: message },
     ],
   });
@@ -281,7 +284,7 @@ app.post('/api/chat', async (c) => {
       return c.json({ error: 'Mesej kosong.' }, 400);
     }
 
-    const reply = await askAi(c.env, message);
+    const reply = await askAi(c.env, message, AWANGBOT_PROMPT);
     await saveLead(c.env, 'Web Chat User', message);
 
     return c.json({ reply });
@@ -300,7 +303,7 @@ app.post('/api/cikgu-chat', async (c) => {
       return c.json({ error: 'Mesej kosong.' }, 400);
     }
 
-    const reply = await askAi(c.env, message, CIKGU_SYSTEM_PROMPT);
+    const reply = await askAi(c.env, message, CIKGU_PROMPT);
     await saveLead(c.env, 'CikguBot User', message);
 
     return c.json({ reply });
@@ -371,7 +374,7 @@ app.post('/webhook', async (c) => {
     }
 
     try {
-      const aiReply = await askAi(c.env, text);
+      const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
       await sendTelegramMessage(c.env.BOT_TOKEN, chatId, aiReply);
       await saveLead(c.env, String(chatId), text);
     } catch (err) {
@@ -410,7 +413,7 @@ app.post('/webhook/whatsapp', async (c) => {
     const text = String(msg.text.body || '').trim();
 
     try {
-      const aiReply = await askAi(c.env, text);
+      const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
       await fetch('https://graph.facebook.com/v20.0/' + c.env.PHONE_NUMBER_ID + '/messages', {
         method: 'POST',
         headers: {

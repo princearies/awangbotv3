@@ -38,12 +38,13 @@ app.post('/webhook', async (c) => {
       const chatId = String(update.message.chat.id);
       const text = update.message.text.trim();
 
+      // Semakan hanya jika pengguna taip /start
       if (text === '/start') {
         await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '👋 <b>Hai! Saya AwangBot78.</b>\nKami bina bot AI custom (cth: untuk cikgu, influencer, syarikat). Cakap apa jenis bot yang anda nak, saya bantu terangkan pakej yang sesuai!');
         return c.text('OK');
       }
 
-      // Guna model Llama 3.2 3B yang lebih stabil + ditambah try/catch
+      // Pemprosesan soalan biasa guna AI
       try {
         const ai = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
           messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]

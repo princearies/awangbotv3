@@ -17,7 +17,7 @@ import { FORM_TAB } from './tabs/form.js';
 
 const app = new Hono();
 
-// Senarai Tab Aktif Portal (Termasuk Hartanah Bot)
+// Senarai Tab Aktif Portal
 const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, INFLUENCER_TAB, RESTOCATERING_TAB, PROPERTY_TAB, FORM_TAB];
 
 function escapeHtml(value = '') {
@@ -125,11 +125,11 @@ app.get('/', (c) => {
               <input name="kontak" type="text" required placeholder="Contoh: 0123456789 atau @ahmad" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label class="block text-xs font-medium mb-1 text-slate-300">Pilihan Pakej</label>
+              <label class="block text-xs font-medium mb-1 text-slate-300">Pilihan Pakej (Harga Tetap)</label>
               <select name="pakej" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
-                <option value="Pakej A (RM50)">Pakej A (RM50) — Bot Asas</option>
-                <option value="Pakej B (RM90)">Pakej B (RM90) — Bot Standard</option>
-                <option value="Pakej C (RM130)">Pakej C (RM130) — Bot Lengkap Custom</option>
+                <option value="Pakej A (RM30/bln)">Pakej A (RM30/bln) — Bot Asas FAQ</option>
+                <option value="Pakej B (RM50/bln)">Pakej B (RM50/bln) — Pakej Standard (Popular)</option>
+                <option value="Pakej C (RM90/bln)">Pakej C (RM90/bln) — Bot Full Custom + Listing Update</option>
               </select>
             </div>
             <div>

@@ -120,7 +120,7 @@ app.get('/', (c) => {
           </div>
 
           <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="chat-form" class="flex gap-2" onsubmit="return false;">
+            <form id="chat-form" class="flex gap-2">
               <input
                 id="user-input"
                 type="text"
@@ -130,7 +130,6 @@ app.get('/', (c) => {
               />
               <button
                 type="submit"
-                id="chat-send-btn"
                 class="bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
               >
                 Hantar
@@ -160,7 +159,7 @@ app.get('/', (c) => {
           </div>
 
           <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="cikgu-form" class="flex gap-2" onsubmit="return false;">
+            <form id="cikgu-form" class="flex gap-2">
               <input
                 id="cikgu-input"
                 type="text"
@@ -170,7 +169,6 @@ app.get('/', (c) => {
               />
               <button
                 type="submit"
-                id="cikgu-send-btn"
                 class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
               >
                 Tanya Cikgu
@@ -218,6 +216,16 @@ app.get('/', (c) => {
     </body>
 
     <script>
+      // FUNGSI ESCAPE HTML CLIENT-SIDE
+      function escapeHtml(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
       function switchTab(tab) {
         var panels = document.querySelectorAll('.tab-panel');
         var buttons = document.querySelectorAll('.tab-btn');
@@ -241,15 +249,15 @@ app.get('/', (c) => {
         btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
       });
 
-      // UTILITY UNTUK CHAT HANTAR
+      // UTILITY HANTAR CHAT
       async function sendChatMessage(inputElem, boxElem, loadingElem, apiPath, badgeTitle, borderStyle) {
         var text = inputElem.value.trim();
         if (!text) return;
 
-        var userBubble = '<div class="flex justify-end"><div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
-        if (badgeTitle.indexOf('Cikgu') !== -1) {
-          userBubble = '<div class="flex justify-end"><div class="bg-emerald-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
-        }
+        var isCikgu = badgeTitle.indexOf('Cikgu') !== -1;
+        var bgBubble = isCikgu ? 'bg-emerald-600' : 'bg-blue-600';
+
+        var userBubble = '<div class="flex justify-end"><div class="' + bgBubble + ' p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
 
         boxElem.insertAdjacentHTML('beforeend', userBubble);
         inputElem.value = '';
@@ -277,39 +285,25 @@ app.get('/', (c) => {
       }
 
       // CHAT 1: AWANGBOT
+      var chatForm = document.getElementById('chat-form');
       var userInput = document.getElementById('user-input');
       var chatBox = document.getElementById('chat-box');
       var loading = document.getElementById('loading');
-      var chatForm = document.getElementById('chat-form');
 
       chatForm.addEventListener('submit', function(e) {
         e.preventDefault();
         sendChatMessage(userInput, chatBox, loading, '/api/chat', '', 'border-slate-600');
       });
 
-      userInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          sendChatMessage(userInput, chatBox, loading, '/api/chat', '', 'border-slate-600');
-        }
-      });
-
       // CHAT 2: CIKGUBOT
+      var cikguForm = document.getElementById('cikgu-form');
       var cikguInput = document.getElementById('cikgu-input');
       var cikguChatBox = document.getElementById('cikgu-chat-box');
       var cikguLoading = document.getElementById('cikgu-loading');
-      var cikguForm = document.getElementById('cikgu-form');
 
       cikguForm.addEventListener('submit', function(e) {
         e.preventDefault();
         sendChatMessage(cikguInput, cikguChatBox, cikguLoading, '/api/cikgu-chat', '👨‍🏫 [CikguBot]', 'border-emerald-500/40');
-      });
-
-      cikguInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          sendChatMessage(cikguInput, cikguChatBox, cikguLoading, '/api/cikgu-chat', '👨‍🏫 [CikguBot]', 'border-emerald-500/40');
-        }
       });
     </script>
     </html>

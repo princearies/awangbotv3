@@ -120,7 +120,7 @@ app.get('/', (c) => {
           </div>
 
           <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="chat-form" class="flex gap-2">
+            <form id="chat-form" class="flex gap-2" onsubmit="return false;">
               <input
                 id="user-input"
                 type="text"
@@ -130,6 +130,7 @@ app.get('/', (c) => {
               />
               <button
                 type="submit"
+                id="chat-send-btn"
                 class="bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
               >
                 Hantar
@@ -138,7 +139,7 @@ app.get('/', (c) => {
           </div>
         </section>
 
-        <!-- TAB 2: CIKGUBOT DEMO (LIVE WORKING BOT) -->
+        <!-- TAB 2: CIKGUBOT DEMO -->
         <section id="tab-cikgu" class="tab-panel hidden flex flex-col flex-1 overflow-hidden">
           <div class="p-3 bg-emerald-950/50 border-b border-emerald-800/50 text-xs text-emerald-300 flex items-center justify-between">
             <span>📚 <b>CikguBot (Tutor AI):</b> Sedia membantu soalan subjek Sekolah/Tuisyen!</span>
@@ -159,7 +160,7 @@ app.get('/', (c) => {
           </div>
 
           <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="cikgu-form" class="flex gap-2">
+            <form id="cikgu-form" class="flex gap-2" onsubmit="return false;">
               <input
                 id="cikgu-input"
                 type="text"
@@ -169,6 +170,7 @@ app.get('/', (c) => {
               />
               <button
                 type="submit"
+                id="cikgu-send-btn"
                 class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
               >
                 Tanya Cikgu
@@ -239,25 +241,23 @@ app.get('/', (c) => {
         btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
       });
 
-      // LOGIK CHAT AWANGBOT78
-      var chatForm = document.getElementById('chat-form');
-      var chatBox = document.getElementById('chat-box');
-      var userInput = document.getElementById('user-input');
-      var loading = document.getElementById('loading');
-
-      chatForm.addEventListener('submit', async function(event) {
-        event.preventDefault();
-        var text = userInput.value.trim();
+      // UTILITY UNTUK CHAT HANTAR
+      async function sendChatMessage(inputElem, boxElem, loadingElem, apiPath, badgeTitle, borderStyle) {
+        var text = inputElem.value.trim();
         if (!text) return;
 
         var userBubble = '<div class="flex justify-end"><div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
-        chatBox.insertAdjacentHTML('beforeend', userBubble);
-        userInput.value = '';
-        chatBox.scrollTop = chatBox.scrollHeight;
-        loading.classList.remove('hidden');
+        if (badgeTitle.indexOf('Cikgu') !== -1) {
+          userBubble = '<div class="flex justify-end"><div class="bg-emerald-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
+        }
+
+        boxElem.insertAdjacentHTML('beforeend', userBubble);
+        inputElem.value = '';
+        boxElem.scrollTop = boxElem.scrollHeight;
+        loadingElem.classList.remove('hidden');
 
         try {
-          var response = await fetch('/api/chat', {
+          var response = await fetch(apiPath, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text }),
@@ -265,51 +265,50 @@ app.get('/', (c) => {
           var data = await response.json();
           if (!response.ok) throw new Error(data?.error || 'Ralat API chat.');
 
-          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 border border-slate-600 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">' + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
-          chatBox.insertAdjacentHTML('beforeend', botBubble);
+          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 ' + borderStyle + ' p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">' + (badgeTitle ? '<b>' + badgeTitle + '</b><br>' : '') + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
+          boxElem.insertAdjacentHTML('beforeend', botBubble);
         } catch (err) {
           var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Sistem AI gagal diproses.') + '</div></div>';
-          chatBox.insertAdjacentHTML('beforeend', errorBubble);
+          boxElem.insertAdjacentHTML('beforeend', errorBubble);
         } finally {
-          loading.classList.add('hidden');
-          chatBox.scrollTop = chatBox.scrollHeight;
+          loadingElem.classList.add('hidden');
+          boxElem.scrollTop = boxElem.scrollHeight;
+        }
+      }
+
+      // CHAT 1: AWANGBOT
+      var userInput = document.getElementById('user-input');
+      var chatBox = document.getElementById('chat-box');
+      var loading = document.getElementById('loading');
+      var chatForm = document.getElementById('chat-form');
+
+      chatForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        sendChatMessage(userInput, chatBox, loading, '/api/chat', '', 'border-slate-600');
+      });
+
+      userInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendChatMessage(userInput, chatBox, loading, '/api/chat', '', 'border-slate-600');
         }
       });
 
-      // LOGIK CIKGUBOT CHAT
-      var cikguForm = document.getElementById('cikgu-form');
-      var cikguChatBox = document.getElementById('cikgu-chat-box');
+      // CHAT 2: CIKGUBOT
       var cikguInput = document.getElementById('cikgu-input');
+      var cikguChatBox = document.getElementById('cikgu-chat-box');
       var cikguLoading = document.getElementById('cikgu-loading');
+      var cikguForm = document.getElementById('cikgu-form');
 
-      cikguForm.addEventListener('submit', async function(event) {
-        event.preventDefault();
-        var text = cikguInput.value.trim();
-        if (!text) return;
+      cikguForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        sendChatMessage(cikguInput, cikguChatBox, cikguLoading, '/api/cikgu-chat', '👨‍🏫 [CikguBot]', 'border-emerald-500/40');
+      });
 
-        var userBubble = '<div class="flex justify-end"><div class="bg-emerald-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
-        cikguChatBox.insertAdjacentHTML('beforeend', userBubble);
-        cikguInput.value = '';
-        cikguChatBox.scrollTop = cikguChatBox.scrollHeight;
-        cikguLoading.classList.remove('hidden');
-
-        try {
-          var response = await fetch('/api/cikgu-chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text }),
-          });
-          var data = await response.json();
-          if (!response.ok) throw new Error(data?.error || 'Ralat CikguBot API.');
-
-          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 border border-emerald-500/40 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">👨‍🏫 <b>[CikguBot]</b><br>' + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
-          cikguChatBox.insertAdjacentHTML('beforeend', botBubble);
-        } catch (err) {
-          var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Ralat CikguBot AI.') + '</div></div>';
-          cikguChatBox.insertAdjacentHTML('beforeend', errorBubble);
-        } finally {
-          cikguLoading.classList.add('hidden');
-          cikguChatBox.scrollTop = cikguChatBox.scrollHeight;
+      cikguInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendChatMessage(cikguInput, cikguChatBox, cikguLoading, '/api/cikgu-chat', '👨‍🏫 [CikguBot]', 'border-emerald-500/40');
         }
       });
     </script>
@@ -347,7 +346,6 @@ app.post('/api/cikgu-chat', async (c) => {
       return c.json({ error: 'Mesej kosong.' }, 400);
     }
 
-    // Menggunakan Prompt Khas CikguBot
     const reply = await askAi(c.env, message, CIKGU_SYSTEM_PROMPT);
     await saveLead(c.env, 'CikguBot User', message);
 

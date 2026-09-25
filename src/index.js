@@ -4,6 +4,7 @@ import { CIKGU_PROMPT } from './prompts/cikgu.js';
 import { BANK_PROMPT } from './prompts/bank.js';
 import { INFLUENCER_PROMPT } from './prompts/influencer.js';
 import { RESTOCATERING_PROMPT } from './prompts/restocatering.js';
+import { PROPERTY_PROMPT } from './prompts/property.js';
 
 // Import Semua Konfigurasi Tab
 import { CHAT_TAB } from './tabs/chat.js';
@@ -11,12 +12,13 @@ import { CIKGU_TAB } from './tabs/cikgu.js';
 import { BANK_TAB } from './tabs/bank.js';
 import { INFLUENCER_TAB } from './tabs/influencer.js';
 import { RESTOCATERING_TAB } from './tabs/restocatering.js';
+import { PROPERTY_TAB } from './tabs/property.js';
 import { FORM_TAB } from './tabs/form.js';
 
 const app = new Hono();
 
-// Senarai Tab Aktif Portal (Termasuk Resto & Catering Bot)
-const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, INFLUENCER_TAB, RESTOCATERING_TAB, FORM_TAB];
+// Senarai Tab Aktif Portal (Termasuk Hartanah Bot)
+const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, INFLUENCER_TAB, RESTOCATERING_TAB, PROPERTY_TAB, FORM_TAB];
 
 function escapeHtml(value = '') {
   return String(value)
@@ -242,6 +244,13 @@ app.post('/api/restocatering-chat', async (c) => {
   const body = await c.req.json();
   const reply = await askAi(c.env, String(body.message || '').trim(), RESTOCATERING_PROMPT);
   await saveLead(c.env, 'RestoCatering Lead', body.message);
+  return c.json({ reply });
+});
+
+app.post('/api/property-chat', async (c) => {
+  const body = await c.req.json();
+  const reply = await askAi(c.env, String(body.message || '').trim(), PROPERTY_PROMPT);
+  await saveLead(c.env, 'PropertyBot Lead', body.message);
   return c.json({ reply });
 });
 

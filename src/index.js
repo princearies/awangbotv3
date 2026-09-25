@@ -1,6 +1,7 @@
 ﻿import { Hono } from 'hono';
 const app = new Hono();
 
+// --- Telegram Function ---
 async function sendTelegramMessage(token, chatId, text) {
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
@@ -11,26 +12,115 @@ async function sendTelegramMessage(token, chatId, text) {
 
 const SYSTEM_PROMPT = `Anda ialah Pembantu AI untuk AwangBot78 — perniagaan yang MEMBINA BOT AI KUSTOM untuk pelbagai jenis pelanggan.
 
-Contoh jenis bot yang kami dah pernah bina (bukan senarai tetap, semuanya boleh disesuaikan):
+Contoh jenis bot yang kami dah pernah bina:
 - CikguBot — untuk tutor/pusat tuisyen
 - InfluencerBot — untuk content creator/influencer
 - EnterpriseBot — untuk syarikat/perniagaan
 
-Setiap bot dibina IKUT KEPERLUAN pelanggan sendiri (fungsi, bahasa, gaya jawapan semua boleh custom).
-
-Pakej harga (ikut tahap kerumitan, BUKAN jenis bot tertentu):
+Pakej harga:
 - Pakej A: RM50 — bot asas, 1 fungsi utama
 - Pakej B: RM90 — bot standard, 2-3 fungsi custom
 - Pakej C: RM130 — bot lengkap, custom penuh + sokongan lanjutan
 
 Arahan jawapan:
 - Jawab ringkas dalam Bahasa Melayu (2-3 ayat).
-- Jangan anggap pelanggan nak bot jenis tertentu — TANYA apa fungsi/jenis bot yang mereka nak, supaya admin boleh bagi quote yang tepat.
-- Jangan sebut pasal penghantaran fizikal/PosLaju — produk kami ialah BOT, bukan barangan.`;
+- TANYA apa fungsi/jenis bot yang mereka nak.
+- Jangan sebut pasal penghantaran fizikal.`;
 
-app.get('/', (c) => c.text('AwangBot v4 Dual Active! Telegram+WhatsApp'));
+// --- 1. WEB GUI LANDING PAGE & BORANG PENDAFTARAN (GET /) ---
+app.get('/', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="ms">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Pendaftaran AwangBot78</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
+      <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl p-6 border border-slate-700">
+        <div class="text-center mb-6">
+          <h1 class="text-3xl font-extrabold text-blue-400">AwangBot78</h1>
+          <p class="text-slate-400 text-sm mt-1">Borang Pendaftaran Custom AI Bot</p>
+        </div>
+        
+        <form action="/register" method="POST" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1 text-slate-300">Nama Anda / Syarikat</label>
+            <input type="text" name="nama" required placeholder="Contoh: Ahmad / Kedai Makanan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+          </div>
 
-// --- 1. TELEGRAM WEBHOOK ---
+          <div>
+            <label class="block text-sm font-medium mb-1 text-slate-300">Nombor WhatsApp / Username Telegram</label>
+            <input type="text" name="kontak" required placeholder="Contoh: 0123456789 atau @ahmad" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1 text-slate-300">Pilihan Pakej</label>
+            <select name="pakej" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+              <option value="Pakej A (RM50)">Pakej A (RM50) — Bot Asas</option>
+              <option value="Pakej B (RM90)">Pakej B (RM90) — Bot Standard</option>
+              <option value="Pakej C (RM130)">Pakej C (RM130) — Bot Lengkap Custom</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-1 text-slate-300">Fungsi Bot Yang Diingini</label>
+            <textarea name="soalan" rows="3" required placeholder="Contoh: Saya nak bot jawal soalan harga tuisyen & subjek..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"></textarea>
+          </div>
+
+          <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded-lg transition duration-200 shadow-lg shadow-blue-500/30">
+            Hantar Pendaftaran
+          </button>
+        </form>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// --- 2. PROSES PENDAFTARAN FORM (POST /register) ---
+app.post('/register', async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const nama = body.nama || 'Tanpa Nama';
+    const kontak = body.kontak || '-';
+    const pakej = body.pakej || '-';
+    const soalan = body.soalan || '-';
+
+    const infoLengkap = `[Pendaftaran Web] Kontak: ${kontak} | Pakej: ${pakej} | Keperluan: ${soalan}`;
+
+    // Simpan data pendaftaran terus ke Database D1
+    try {
+      await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(nama, infoLengkap).run();
+    } catch(dbErr) {
+      console.error('D1 Error:', dbErr);
+    }
+
+    return c.html(`
+      <!DOCTYPE html>
+      <html lang="ms">
+      <head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://cdn.tailwindcss.com"></script>
+      </head>
+      <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
+        <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 text-center border border-slate-700 shadow-2xl">
+          <div class="text-green-400 text-5xl mb-4">✅</div>
+          <h2 class="text-2xl font-bold mb-2">Pendaftaran Berjaya!</h2>
+          <p class="text-slate-300 mb-6">Terima kasih <b>${nama}</b>. Maklumat anda telah disimpan ke sistem AwangBot78. Kami akan menghubungi anda melalui WhatsApp/Telegram secepat mungkin.</p>
+          <a href="/" class="inline-block bg-blue-600 px-6 py-2 rounded-lg font-semibold hover:bg-blue-500 transition">Kembali ke Laman Utama</a>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch(e) {
+    return c.text("Ralat semasa pendaftaran: " + e.message, 500);
+  }
+});
+
+// --- 3. TELEGRAM WEBHOOK ---
 app.post('/webhook', async (c) => {
   try {
     const update = await c.req.json();
@@ -38,13 +128,11 @@ app.post('/webhook', async (c) => {
       const chatId = String(update.message.chat.id);
       const text = update.message.text.trim();
 
-      // Semakan hanya jika pengguna taip /start
       if (text === '/start') {
         await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '👋 <b>Hai! Saya AwangBot78.</b>\nKami bina bot AI custom (cth: untuk cikgu, influencer, syarikat). Cakap apa jenis bot yang anda nak, saya bantu terangkan pakej yang sesuai!');
         return c.text('OK');
       }
 
-      // Pemprosesan soalan biasa guna AI
       try {
         const ai = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
           messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
@@ -55,14 +143,13 @@ app.post('/webhook', async (c) => {
         await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '⚠️ Maaf, sistem AI mengalami gangguan seketika. Sila cuba lagi.');
       }
 
-      // Simpan lead
       try { await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(chatId, text).run() } catch(e){}
     }
   } catch (e) { console.error(e) }
   return c.text('OK');
 });
 
-// --- 2. WHATSAPP WEBHOOK ---
+// --- 4. WHATSAPP WEBHOOK ---
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');

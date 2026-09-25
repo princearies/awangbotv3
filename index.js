@@ -31,12 +31,12 @@ function escapeHtml(value = '') {
 }
 
 async function sendTelegramMessage(token, chatId, text) {
-  await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
-      text: text,
+      text,
       parse_mode: 'HTML',
     }),
   });
@@ -203,16 +203,17 @@ app.get('/', (c) => {
     </body>
 
     <script>
+      // LOGIK PERTUKARAN TAB
       function switchTab(tab) {
-        var panels = document.querySelectorAll('.tab-panel');
-        var buttons = document.querySelectorAll('.tab-btn');
+        const panels = document.querySelectorAll('.tab-panel');
+        const buttons = document.querySelectorAll('.tab-btn');
 
-        panels.forEach(function(panel) {
-          panel.classList.toggle('hidden', panel.id !== 'tab-' + tab);
+        panels.forEach((panel) => {
+          panel.classList.toggle('hidden', panel.id !== `tab-${tab}`);
         });
 
-        buttons.forEach(function(btn) {
-          var active = btn.dataset.tab === tab;
+        buttons.forEach((btn) => {
+          const active = btn.dataset.tab === tab;
           btn.classList.toggle('bg-blue-600', active && tab === 'chat');
           btn.classList.toggle('bg-purple-600', active && tab === 'poc');
           btn.classList.toggle('bg-green-600', active && tab === 'form');
@@ -222,39 +223,58 @@ app.get('/', (c) => {
         });
       }
 
-      document.querySelectorAll('.tab-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
+      document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
       });
 
-      var chatForm = document.getElementById('chat-form');
-      var chatBox = document.getElementById('chat-box');
-      var userInput = document.getElementById('user-input');
-      var loading = document.getElementById('loading');
+      // LOGIK TAB LIVE CHAT
+      const chatForm = document.getElementById('chat-form');
+      const chatBox = document.getElementById('chat-box');
+      const userInput = document.getElementById('user-input');
+      const loading = document.getElementById('loading');
 
-      chatForm.addEventListener('submit', async function(event) {
+      chatForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        var text = userInput.value.trim();
+        const text = userInput.value.trim();
         if (!text) return;
 
-        var userBubble = '<div class="flex justify-end"><div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
+        const userBubble = `
+          <div class="flex justify-end">
+            <div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">
+              ${escapeHtml(text)}
+            </div>
+          </div>
+        `;
         chatBox.insertAdjacentHTML('beforeend', userBubble);
         userInput.value = '';
         chatBox.scrollTop = chatBox.scrollHeight;
         loading.classList.remove('hidden');
 
         try {
-          var response = await fetch('/api/chat', {
+          const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text }),
           });
-          var data = await response.json();
+          const data = await response.json();
           if (!response.ok) throw new Error(data?.error || 'Ralat API chat.');
 
-          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 border border-slate-600 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">' + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
+          const botBubble = `
+            <div class="flex items-start">
+              <div class="bg-slate-700 border border-slate-600 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">
+                ${escapeHtml(data.reply || 'Tiada jawapan.')}
+              </div>
+            </div>
+          `;
           chatBox.insertAdjacentHTML('beforeend', botBubble);
         } catch (err) {
-          var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Sistem AI gagal diproses.') + '</div></div>';
+          const errorBubble = `
+            <div class="flex items-start">
+              <div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">
+                ⚠️ ${escapeHtml(err.message || 'Sistem AI gagal diproses.')}
+              </div>
+            </div>
+          `;
           chatBox.insertAdjacentHTML('beforeend', errorBubble);
         } finally {
           loading.classList.add('hidden');
@@ -262,35 +282,55 @@ app.get('/', (c) => {
         }
       });
 
-      var pocForm = document.getElementById('poc-form');
-      var pocChatBox = document.getElementById('poc-chat-box');
-      var pocInput = document.getElementById('poc-input');
-      var pocLoading = document.getElementById('poc-loading');
+      // LOGIK TAB POC DEMO (POC HANDLER)
+      const pocForm = document.getElementById('poc-form');
+      const pocChatBox = document.getElementById('poc-chat-box');
+      const pocInput = document.getElementById('poc-input');
+      const pocLoading = document.getElementById('poc-loading');
 
-      pocForm.addEventListener('submit', async function(event) {
+      pocForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        var text = pocInput.value.trim();
+        const text = pocInput.value.trim();
         if (!text) return;
 
-        var userBubble = '<div class="flex justify-end"><div class="bg-purple-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
+        const userBubble = `
+          <div class="flex justify-end">
+            <div class="bg-purple-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">
+              ${escapeHtml(text)}
+            </div>
+          </div>
+        `;
         pocChatBox.insertAdjacentHTML('beforeend', userBubble);
         pocInput.value = '';
         pocChatBox.scrollTop = pocChatBox.scrollHeight;
         pocLoading.classList.remove('hidden');
 
         try {
-          var response = await fetch('/api/poc-chat', {
+          const response = await fetch('/api/poc-chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text }),
           });
-          var data = await response.json();
+          const data = await response.json();
           if (!response.ok) throw new Error(data?.error || 'Ralat PoC API.');
 
-          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 border border-purple-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">🤖 <b>[PoC Bot]</b><br>' + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
+          const botBubble = `
+            <div class="flex items-start">
+              <div class="bg-slate-700 border border-purple-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">
+                🤖 <b>[PoC Bot]</b><br>
+                ${escapeHtml(data.reply || 'Tiada jawapan.')}
+              </div>
+            </div>
+          `;
           pocChatBox.insertAdjacentHTML('beforeend', botBubble);
         } catch (err) {
-          var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Ralat PoC AI.') + '</div></div>';
+          const errorBubble = `
+            <div class="flex items-start">
+              <div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">
+                ⚠️ ${escapeHtml(err.message || 'Ralat PoC AI.')}
+              </div>
+            </div>
+          `;
           pocChatBox.insertAdjacentHTML('beforeend', errorBubble);
         } finally {
           pocLoading.classList.add('hidden');
@@ -302,6 +342,7 @@ app.get('/', (c) => {
   `);
 });
 
+// ENDPOINT UNTUK LIVE CHAT ASAL
 app.post('/api/chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -321,6 +362,7 @@ app.post('/api/chat', async (c) => {
   }
 });
 
+// ENDPOINT BAHARU UNTUK PROOF OF CONCEPT (POC CHAT)
 app.post('/api/poc-chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -340,6 +382,7 @@ app.post('/api/poc-chat', async (c) => {
   }
 });
 
+// ENDPOINT PERMOHONAN ASAL
 app.post('/register', async (c) => {
   try {
     const body = await c.req.parseBody();
@@ -348,7 +391,7 @@ app.post('/register', async (c) => {
     const pakej = String(body.pakej || '').trim() || '-';
     const soalan = String(body.soalan || '').trim() || '-';
 
-    const infoLengkap = '[Permohonan Web] Kontak: ' + kontak + ' | Pakej: ' + pakej + ' | Keperluan: ' + soalan;
+    const infoLengkap = `[Permohonan Web] Kontak: ${kontak} | Pakej: ${pakej} | Keperluan: ${soalan}`;
 
     await saveLead(c.env, nama, infoLengkap);
 
@@ -380,6 +423,7 @@ app.post('/register', async (c) => {
   }
 });
 
+// WEBHOOK TELEGRAM (DIKEKALKAN)
 app.post('/webhook', async (c) => {
   try {
     const update = await c.req.json();
@@ -415,6 +459,7 @@ app.post('/webhook', async (c) => {
   return c.text('OK');
 });
 
+// WEBHOOK WHATSAPP (DIKEKALKAN)
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');
@@ -441,10 +486,10 @@ app.post('/webhook/whatsapp', async (c) => {
 
     try {
       const aiReply = await askAi(c.env, text);
-      await fetch('https://graph.facebook.com/v20.0/' + c.env.PHONE_NUMBER_ID + '/messages', {
+      await fetch(`https://graph.facebook.com/v20.0/${c.env.PHONE_NUMBER_ID}/messages`, {
         method: 'POST',
         headers: {
-          Authorization: 'Bearer ' + c.env.ACCESS_TOKEN,
+          Authorization: `Bearer ${c.env.ACCESS_TOKEN}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

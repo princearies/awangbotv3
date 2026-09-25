@@ -3,6 +3,7 @@ import { AWANGBOT_PROMPT } from './prompts/awangbot.js';
 import { CIKGU_PROMPT } from './prompts/cikgu.js';
 import { INFLUENCER_PROMPT } from './prompts/influencer.js';
 import { ENTERPRISE_PROMPT } from './prompts/enterprise.js';
+import { BANK_PROMPT } from './prompts/bank.js';
 
 const app = new Hono();
 
@@ -310,6 +311,26 @@ app.post('/api/cikgu-chat', async (c) => {
   } catch (err) {
     console.error('CikguBot Chat route error:', err);
     return c.json({ error: 'Ralat pemprosesan CikguBot Chat.' }, 500);
+  }
+});
+
+// ENDPOINT KHAS BANKBOT
+app.post('/api/bank-chat', async (c) => {
+  try {
+    const body = await c.req.json();
+    const message = String(body.message || '').trim();
+
+    if (!message) {
+      return c.json({ error: 'Mesej kosong.' }, 400);
+    }
+
+    const reply = await askAi(c.env, message, BANK_PROMPT);
+    await saveLead(c.env, 'BankBot Lead', message);
+
+    return c.json({ reply });
+  } catch (err) {
+    console.error('BankBot Chat route error:', err);
+    return c.json({ error: 'Ralat pemprosesan BankBot Chat.' }, 500);
   }
 });
 

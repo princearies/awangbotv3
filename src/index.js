@@ -27,7 +27,7 @@ Arahan jawapan:
 - TANYA apa fungsi/jenis bot yang mereka nak.
 - Jangan sebut pasal penghantaran fizikal.`;
 
-// --- 1. WEB GUI LANDING PAGE & BORANG PENDAFTARAN (GET /) ---
+// --- 1. WEB CHAT GUI + REGISTRATION FORM (GET /) ---
 app.get('/', (c) => {
   return c.html(`
     <!DOCTYPE html>
@@ -35,88 +35,132 @@ app.get('/', (c) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Pendaftaran AwangBot78</title>
+      <title>AwangBot78 - Live AI Assistant</title>
       <script src="https://cdn.tailwindcss.com"></script>
     </head>
-    <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
-      <div class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl p-6 border border-slate-700">
-        <div class="text-center mb-6">
-          <h1 class="text-3xl font-extrabold text-blue-400">AwangBot78</h1>
-          <p class="text-slate-400 text-sm mt-1">Borang Pendaftaran Custom AI Bot</p>
-        </div>
+    <body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-3 md:p-6">
+      
+      <div class="max-w-xl w-full bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 flex flex-col h-[85vh]">
         
-        <form action="/register" method="POST" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium mb-1 text-slate-300">Nama Anda / Syarikat</label>
-            <input type="text" name="nama" required placeholder="Contoh: Ahmad / Kedai Makanan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+        <!-- Header -->
+        <div class="p-4 border-b border-slate-700 bg-slate-800/80 rounded-t-2xl flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+            <div>
+              <h1 class="font-bold text-lg text-blue-400">AwangBot78 Web AI</h1>
+              <p class="text-xs text-slate-400">Tanya soalan & daftar bot AI anda secara live</p>
+            </div>
           </div>
+        </div>
 
-          <div>
-            <label class="block text-sm font-medium mb-1 text-slate-300">Nombor WhatsApp / Username Telegram</label>
-            <input type="text" name="kontak" required placeholder="Contoh: 0123456789 atau @ahmad" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+        <!-- Chat Messages Area -->
+        <div id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
+          <div class="flex items-start space-x-2">
+            <div class="bg-blue-600/30 border border-blue-500/30 p-3 rounded-2xl max-w-[85%] text-sm">
+              👋 <b>Hai! Saya AwangBot78.</b><br>Kami bina bot AI custom (cth: CikguBot, InfluencerBot, Syarikat). Boleh tanya apa-apa soalan di sini atau minta cadangan pakej!
+            </div>
           </div>
+        </div>
 
-          <div>
-            <label class="block text-sm font-medium mb-1 text-slate-300">Pilihan Pakej</label>
-            <select name="pakej" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
-              <option value="Pakej A (RM50)">Pakej A (RM50) — Bot Asas</option>
-              <option value="Pakej B (RM90)">Pakej B (RM90) — Bot Standard</option>
-              <option value="Pakej C (RM130)">Pakej C (RM130) — Bot Lengkap Custom</option>
-            </select>
-          </div>
+        <!-- Typing Indicator -->
+        <div id="loading" class="hidden px-4 py-2 text-xs text-slate-400 italic">
+          AwangBot78 sedang menaip...
+        </div>
 
-          <div>
-            <label class="block text-sm font-medium mb-1 text-slate-300">Fungsi Bot Yang Diingini</label>
-            <textarea name="soalan" rows="3" required placeholder="Contoh: Saya nak bot jawal soalan harga tuisyen & subjek..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"></textarea>
-          </div>
+        <!-- Input Area -->
+        <div class="p-3 border-t border-slate-700 bg-slate-800/90 rounded-b-2xl">
+          <form id="chat-form" class="flex gap-2">
+            <input type="text" id="user-input" required placeholder="Taip soalan anda di sini..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold text-sm transition shadow-lg shadow-blue-500/20">
+              Hantar
+            </button>
+          </form>
+        </div>
 
-          <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded-lg transition duration-200 shadow-lg shadow-blue-500/30">
-            Hantar Pendaftaran
-          </button>
-        </form>
       </div>
+
+      <script>
+        const form = document.getElementById('chat-form');
+        const input = document.getElementById('user-input');
+        const box = document.getElementById('chat-box');
+        const loading = document.getElementById('loading');
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const text = input.value.trim();
+          if (!text) return;
+
+          // User message UI
+          box.innerHTML += \`
+            <div class="flex justify-end">
+              <div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">
+                \${text}
+              </div>
+            </div>
+          \`;
+          input.value = '';
+          box.scrollTop = box.scrollHeight;
+          loading.classList.remove('hidden');
+
+          try {
+            const res = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: text })
+            });
+            const data = await res.json();
+            
+            loading.classList.add('hidden');
+            box.innerHTML += \`
+              <div class="flex items-start space-x-2">
+                <div class="bg-slate-700 border border-slate-600 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">
+                  \${data.reply}
+                </div>
+              </div>
+            \`;
+            box.scrollTop = box.scrollHeight;
+          } catch(err) {
+            loading.classList.add('hidden');
+            box.innerHTML += \`
+              <div class="flex justify-center">
+                <div class="bg-red-500/20 text-red-300 text-xs p-2 rounded-lg">
+                  Ralat sambungan. Sila cuba lagi.
+                </div>
+              </div>
+            \`;
+          }
+        });
+      </script>
     </body>
     </html>
   `);
 });
 
-// --- 2. PROSES PENDAFTARAN FORM (POST /register) ---
-app.post('/register', async (c) => {
+// --- 2. API ENDPOINT UNTUK WEB LIVE CHAT (POST /api/chat) ---
+app.post('/api/chat', async (c) => {
   try {
-    const body = await c.req.parseBody();
-    const nama = body.nama || 'Tanpa Nama';
-    const kontak = body.kontak || '-';
-    const pakej = body.pakej || '-';
-    const soalan = body.soalan || '-';
+    const body = await c.req.json();
+    const text = body.message || '';
 
-    const infoLengkap = `[Pendaftaran Web] Kontak: ${kontak} | Pakej: ${pakej} | Keperluan: ${soalan}`;
-
-    // Simpan data pendaftaran terus ke Database D1
+    let reply = 'Maaf, sila cuba lagi.';
     try {
-      await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(nama, infoLengkap).run();
-    } catch(dbErr) {
-      console.error('D1 Error:', dbErr);
+      const ai = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
+      });
+      reply = ai.response || reply;
+    } catch (aiErr) {
+      console.error('Web AI Error:', aiErr);
+      reply = '⚠️ Sistem AI mengalami gangguan seketika.';
     }
 
-    return c.html(`
-      <!DOCTYPE html>
-      <html lang="ms">
-      <head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <script src="https://cdn.tailwindcss.com"></script>
-      </head>
-      <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
-        <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 text-center border border-slate-700 shadow-2xl">
-          <div class="text-green-400 text-5xl mb-4">✅</div>
-          <h2 class="text-2xl font-bold mb-2">Pendaftaran Berjaya!</h2>
-          <p class="text-slate-300 mb-6">Terima kasih <b>${nama}</b>. Maklumat anda telah disimpan ke sistem AwangBot78. Kami akan menghubungi anda melalui WhatsApp/Telegram secepat mungkin.</p>
-          <a href="/" class="inline-block bg-blue-600 px-6 py-2 rounded-lg font-semibold hover:bg-blue-500 transition">Kembali ke Laman Utama</a>
-        </div>
-      </body>
-      </html>
-    `);
+    // Simpan lead dari Web Chat
+    try {
+      await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind('Web User', text).run();
+    } catch(e){}
+
+    return c.json({ reply });
   } catch(e) {
-    return c.text("Ralat semasa pendaftaran: " + e.message, 500);
+    return c.json({ reply: 'Ralat pemprosesan web chat.' }, 500);
   }
 });
 

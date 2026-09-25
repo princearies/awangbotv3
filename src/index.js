@@ -27,7 +27,7 @@ Arahan jawapan:
 - TANYA apa fungsi/jenis bot yang mereka nak.
 - Jangan sebut pasal penghantaran fizikal.`;
 
-// --- 1. WEB CHAT GUI + REGISTRATION FORM (GET /) ---
+// --- 1. WEB CHAT GUI + BORANG PERMOHONAN (GET /) ---
 app.get('/', (c) => {
   return c.html(`
     <!DOCTYPE html>
@@ -35,44 +35,75 @@ app.get('/', (c) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>AwangBot78 - Live AI Assistant</title>
+      <title>AwangBot78 - Live Chat & Permohonan</title>
       <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-3 md:p-6">
       
-      <div class="max-w-xl w-full bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 flex flex-col h-[85vh]">
+      <div class="max-w-xl w-full bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 flex flex-col h-[88vh]">
         
-        <!-- Header -->
-        <div class="p-4 border-b border-slate-700 bg-slate-800/80 rounded-t-2xl flex items-center justify-between">
-          <div class="flex items-center space-x-3">
+        <!-- Tab Navigation Header -->
+        <div class="p-3 border-b border-slate-700 bg-slate-800/90 rounded-t-2xl flex justify-between items-center">
+          <div class="flex items-center space-x-2">
             <div class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+            <span class="font-bold text-blue-400 text-sm md:text-base">AwangBot78 Portal</span>
+          </div>
+          <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
+            <button id="btn-chat" onclick="switchTab('chat')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition bg-blue-600 text-white">💬 Live Chat</button>
+            <button id="btn-form" onclick="switchTab('form')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white">📝 Permohonan</button>
+          </div>
+        </div>
+
+        <!-- 1. TAB LIVE CHAT -->
+        <div id="tab-chat-content" class="flex-1 flex flex-col overflow-hidden">
+          <div id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
+            <div class="flex items-start space-x-2">
+              <div class="bg-blue-600/30 border border-blue-500/30 p-3 rounded-2xl max-w-[85%] text-sm">
+                👋 <b>Hai! Saya AwangBot78.</b><br>Tanya saya apa-apa soalan secara live, atau klik tab <b>Permohonan</b> di atas untuk isi borang tempahan bot!
+              </div>
+            </div>
+          </div>
+          <div id="loading" class="hidden px-4 py-1 text-xs text-slate-400 italic">AwangBot78 sedang menaip...</div>
+          <div class="p-3 border-t border-slate-700 bg-slate-800/90 rounded-b-2xl">
+            <form id="chat-form" class="flex gap-2">
+              <input type="text" id="user-input" required placeholder="Taip soalan anda di sini..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500">
+              <button type="submit" class="bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-xl font-bold text-sm transition">Hantar</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- 2. TAB BORANG PERMOHONAN -->
+        <div id="tab-form-content" class="hidden flex-1 overflow-y-auto p-5">
+          <h2 class="text-xl font-bold text-blue-400 mb-1">Borang Permohonan Bot Custom</h2>
+          <p class="text-xs text-slate-400 mb-4">Isi maklumat di bawah untuk pendaftaran tempahan bot anda.</p>
+          
+          <form action="/register" method="POST" class="space-y-3">
             <div>
-              <h1 class="font-bold text-lg text-blue-400">AwangBot78 Web AI</h1>
-              <p class="text-xs text-slate-400">Tanya soalan & daftar bot AI anda secara live</p>
+              <label class="block text-xs font-medium mb-1 text-slate-300">Nama Anda / Syarikat</label>
+              <input type="text" name="nama" required placeholder="Contoh: Ahmad / Kedai Makanan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
             </div>
-          </div>
-        </div>
 
-        <!-- Chat Messages Area -->
-        <div id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
-          <div class="flex items-start space-x-2">
-            <div class="bg-blue-600/30 border border-blue-500/30 p-3 rounded-2xl max-w-[85%] text-sm">
-              👋 <b>Hai! Saya AwangBot78.</b><br>Kami bina bot AI custom (cth: CikguBot, InfluencerBot, Syarikat). Boleh tanya apa-apa soalan di sini atau minta cadangan pakej!
+            <div>
+              <label class="block text-xs font-medium mb-1 text-slate-300">Nombor WhatsApp / Telegram</label>
+              <input type="text" name="kontak" required placeholder="Contoh: 0123456789 atau @ahmad" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
             </div>
-          </div>
-        </div>
 
-        <!-- Typing Indicator -->
-        <div id="loading" class="hidden px-4 py-2 text-xs text-slate-400 italic">
-          AwangBot78 sedang menaip...
-        </div>
+            <div>
+              <label class="block text-xs font-medium mb-1 text-slate-300">Pilihan Pakej</label>
+              <select name="pakej" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                <option value="Pakej A (RM50)">Pakej A (RM50) — Bot Asas</option>
+                <option value="Pakej B (RM90)">Pakej B (RM90) — Bot Standard</option>
+                <option value="Pakej C (RM130)">Pakej C (RM130) — Bot Lengkap Custom</option>
+              </select>
+            </div>
 
-        <!-- Input Area -->
-        <div class="p-3 border-t border-slate-700 bg-slate-800/90 rounded-b-2xl">
-          <form id="chat-form" class="flex gap-2">
-            <input type="text" id="user-input" required placeholder="Taip soalan anda di sini..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500">
-            <button type="submit" class="bg-blue-600 hover:bg-blue-500 px-5 py-3 rounded-xl font-bold text-sm transition shadow-lg shadow-blue-500/20">
-              Hantar
+            <div>
+              <label class="block text-xs font-medium mb-1 text-slate-300">Fungsi Bot Yang Diingini</label>
+              <textarea name="soalan" rows="3" required placeholder="Terangkan keperluan bot anda..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+
+            <button type="submit" class="w-full bg-green-600 hover:bg-green-500 font-bold py-2.5 rounded-lg transition duration-200 text-sm shadow-lg shadow-green-500/20">
+              Hantar Permohonan
             </button>
           </form>
         </div>
@@ -80,6 +111,25 @@ app.get('/', (c) => {
       </div>
 
       <script>
+        function switchTab(tab) {
+          const chatContent = document.getElementById('tab-chat-content');
+          const formContent = document.getElementById('tab-form-content');
+          const btnChat = document.getElementById('btn-chat');
+          const btnForm = document.getElementById('btn-form');
+
+          if (tab === 'chat') {
+            chatContent.classList.remove('hidden');
+            formContent.classList.add('hidden');
+            btnChat.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-blue-600 text-white';
+            btnForm.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+          } else {
+            chatContent.classList.add('hidden');
+            formContent.classList.remove('hidden');
+            btnForm.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-blue-600 text-white';
+            btnChat.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+          }
+        }
+
         const form = document.getElementById('chat-form');
         const input = document.getElementById('user-input');
         const box = document.getElementById('chat-box');
@@ -90,14 +140,7 @@ app.get('/', (c) => {
           const text = input.value.trim();
           if (!text) return;
 
-          // User message UI
-          box.innerHTML += \`
-            <div class="flex justify-end">
-              <div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">
-                \${text}
-              </div>
-            </div>
-          \`;
+          box.innerHTML += \`<div class="flex justify-end"><div class="bg-blue-600 p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">\${text}</div></div>\`;
           input.value = '';
           box.scrollTop = box.scrollHeight;
           loading.classList.remove('hidden');
@@ -109,25 +152,11 @@ app.get('/', (c) => {
               body: JSON.stringify({ message: text })
             });
             const data = await res.json();
-            
             loading.classList.add('hidden');
-            box.innerHTML += \`
-              <div class="flex items-start space-x-2">
-                <div class="bg-slate-700 border border-slate-600 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">
-                  \${data.reply}
-                </div>
-              </div>
-            \`;
+            box.innerHTML += \`<div class="flex items-start space-x-2"><div class="bg-slate-700 border border-slate-600 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">\${data.reply}</div></div>\`;
             box.scrollTop = box.scrollHeight;
           } catch(err) {
             loading.classList.add('hidden');
-            box.innerHTML += \`
-              <div class="flex justify-center">
-                <div class="bg-red-500/20 text-red-300 text-xs p-2 rounded-lg">
-                  Ralat sambungan. Sila cuba lagi.
-                </div>
-              </div>
-            \`;
           }
         });
       </script>
@@ -136,7 +165,7 @@ app.get('/', (c) => {
   `);
 });
 
-// --- 2. API ENDPOINT UNTUK WEB LIVE CHAT (POST /api/chat) ---
+// --- 2. API ENDPOINT UNTUK LIVE CHAT (POST /api/chat) ---
 app.post('/api/chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -149,14 +178,10 @@ app.post('/api/chat', async (c) => {
       });
       reply = ai.response || reply;
     } catch (aiErr) {
-      console.error('Web AI Error:', aiErr);
       reply = '⚠️ Sistem AI mengalami gangguan seketika.';
     }
 
-    // Simpan lead dari Web Chat
-    try {
-      await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind('Web User', text).run();
-    } catch(e){}
+    try { await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind('Web Chat User', text).run(); } catch(e){}
 
     return c.json({ reply });
   } catch(e) {
@@ -164,7 +189,41 @@ app.post('/api/chat', async (c) => {
   }
 });
 
-// --- 3. TELEGRAM WEBHOOK ---
+// --- 3. PROSES BORANG PERMOHONAN (POST /register) ---
+app.post('/register', async (c) => {
+  try {
+    const body = await c.req.parseBody();
+    const nama = body.nama || 'Tanpa Nama';
+    const kontak = body.kontak || '-';
+    const pakej = body.pakej || '-';
+    const soalan = body.soalan || '-';
+
+    const infoLengkap = `[Permohonan Web] Kontak: ${kontak} | Pakej: ${pakej} | Keperluan: ${soalan}`;
+
+    try {
+      await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(nama, infoLengkap).run();
+    } catch(dbErr) {}
+
+    return c.html(`
+      <!DOCTYPE html>
+      <html lang="ms">
+      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><script src="https://cdn.tailwindcss.com"></script></head>
+      <body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
+        <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 text-center border border-slate-700 shadow-2xl">
+          <div class="text-green-400 text-5xl mb-4">✅</div>
+          <h2 class="text-2xl font-bold mb-2">Permohonan Berjaya!</h2>
+          <p class="text-slate-300 mb-6">Terima kasih <b>${nama}</b>. Maklumat anda telah disimpan ke sistem D1 AwangBot78. Kami akan hubungi anda secepat mungkin.</p>
+          <a href="/" class="inline-block bg-blue-600 px-6 py-2 rounded-lg font-semibold hover:bg-blue-500 transition">Kembali ke Web</a>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch(e) {
+    return c.text("Ralat permohonan: " + e.message, 500);
+  }
+});
+
+// --- 4. TELEGRAM WEBHOOK ---
 app.post('/webhook', async (c) => {
   try {
     const update = await c.req.json();
@@ -183,7 +242,6 @@ app.post('/webhook', async (c) => {
         });
         await sendTelegramMessage(c.env.BOT_TOKEN, chatId, ai.response || 'Maaf, saya kurang pasti. Sila cuba soalan lain.');
       } catch (aiErr) {
-        console.error('AI Error:', aiErr);
         await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '⚠️ Maaf, sistem AI mengalami gangguan seketika. Sila cuba lagi.');
       }
 
@@ -193,7 +251,7 @@ app.post('/webhook', async (c) => {
   return c.text('OK');
 });
 
-// --- 4. WHATSAPP WEBHOOK ---
+// --- 5. WHATSAPP WEBHOOK ---
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');
@@ -227,9 +285,7 @@ app.post('/webhook/whatsapp', async (c) => {
           text: { body: ai.response || 'Maaf, sila cuba lagi.' }
         })
       });
-    } catch (aiErr) {
-      console.error('WhatsApp AI Error:', aiErr);
-    }
+    } catch (aiErr) {}
 
     try { await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(from, text).run() } catch(e){}
   } catch (e) { console.error(e) }

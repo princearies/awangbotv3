@@ -1,37 +1,7 @@
 ﻿import { Hono } from 'hono';
+import { SYSTEM_PROMPT, CIKGU_SYSTEM_PROMPT } from './prompts.js';
 
 const app = new Hono();
-
-// Prompt asal untuk AwangBot78
-const SYSTEM_PROMPT = `
-Anda ialah Pembantu AI untuk AwangBot78 — perniagaan yang MEMBINA BOT AI KUSTOM untuk pelbagai jenis pelanggan.
-
-Contoh jenis bot yang kami pernah bina:
-- CikguBot — untuk tutor/pusat tuisyen
-- InfluencerBot — untuk content creator/influencer
-- EnterpriseBot — untuk syarikat/perniagaan
-
-Pakej harga:
-- Pakej A: RM50 — bot asas, 1 fungsi utama
-- Pakej B: RM90 — bot standard, 2-3 fungsi custom
-- Pakej C: RM130 — bot lengkap, custom penuh + sokongan lanjutan
-
-Arahan jawapan:
-- Jawab ringkas dalam Bahasa Melayu (2-3 ayat).
-- TANYA apa fungsi/jenis bot yang mereka nak.
-- Jangan sebut pasal penghantaran fizikal.
-`;
-
-// Prompt khas untuk CikguBot Demo
-const CIKGU_SYSTEM_PROMPT = `
-Anda ialah CikguBot — Tutor AI mesra dan pintar untuk pelajar sekolah/tuisyen di Malaysia.
-
-Peranan anda:
-- Membantu menerangkan soalan pelajaran (Matematik, Sains, Sejarah, Bahasa Melayu, Bahasa Inggeris, dll).
-- Memberi penjelasan yang mudah difahami, bersikap mesra, bersemangat dan sabar.
-- Gunakan bahasa Melayu yang sopan (gunakan panggilan "Cikgu" atau "CikguBot" dan panggil pengguna "pelajar" atau "adik").
-- Jika soalan perlukan langkah penyelesaian (seperti Matematik), tunjukkan langkah ringkas satu per satu.
-`;
 
 function escapeHtml(value = '') {
   return String(value)
@@ -96,7 +66,6 @@ app.get('/', (c) => {
             <span class="font-bold text-blue-400 text-sm md:text-base">AwangBot78 Portal</span>
           </div>
 
-          <!-- TAB BUTTONS -->
           <div class="flex gap-1 rounded-xl bg-slate-900 p-1 border border-slate-700 text-xs">
             <button type="button" data-tab="chat" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition bg-blue-600 text-white">💬 Live Chat</button>
             <button type="button" data-tab="cikgu" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition text-slate-400 hover:text-white">👨‍🏫 CikguBot Demo</button>
@@ -104,7 +73,6 @@ app.get('/', (c) => {
           </div>
         </header>
 
-        <!-- TAB 1: LIVE CHAT (AWANGBOT78) -->
         <section id="tab-chat" class="tab-panel flex flex-col flex-1 overflow-hidden">
           <div id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
             <div class="flex items-start">
@@ -138,7 +106,6 @@ app.get('/', (c) => {
           </div>
         </section>
 
-        <!-- TAB 2: CIKGUBOT DEMO -->
         <section id="tab-cikgu" class="tab-panel hidden flex flex-col flex-1 overflow-hidden">
           <div class="p-3 bg-emerald-950/50 border-b border-emerald-800/50 text-xs text-emerald-300 flex items-center justify-between">
             <span>📚 <b>CikguBot (Tutor AI):</b> Sedia membantu soalan subjek Sekolah/Tuisyen!</span>
@@ -177,7 +144,6 @@ app.get('/', (c) => {
           </div>
         </section>
 
-        <!-- TAB 3: BORANG PERMOHONAN -->
         <section id="tab-form" class="tab-panel hidden flex-1 overflow-y-auto p-5">
           <h2 class="text-xl font-bold text-blue-400 mb-1">Borang Permohonan Bot Custom</h2>
           <p class="text-xs text-slate-400 mb-4">Isi maklumat di bawah untuk pendaftaran tempahan bot anda.</p>
@@ -216,7 +182,6 @@ app.get('/', (c) => {
     </body>
 
     <script>
-      // FUNGSI ESCAPE HTML CLIENT-SIDE
       function escapeHtml(value) {
         return String(value || '')
           .replace(/&/g, '&amp;')
@@ -249,7 +214,6 @@ app.get('/', (c) => {
         btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
       });
 
-      // UTILITY HANTAR CHAT
       async function sendChatMessage(inputElem, boxElem, loadingElem, apiPath, badgeTitle, borderStyle) {
         var text = inputElem.value.trim();
         if (!text) return;
@@ -284,7 +248,6 @@ app.get('/', (c) => {
         }
       }
 
-      // CHAT 1: AWANGBOT
       var chatForm = document.getElementById('chat-form');
       var userInput = document.getElementById('user-input');
       var chatBox = document.getElementById('chat-box');
@@ -295,7 +258,6 @@ app.get('/', (c) => {
         sendChatMessage(userInput, chatBox, loading, '/api/chat', '', 'border-slate-600');
       });
 
-      // CHAT 2: CIKGUBOT
       var cikguForm = document.getElementById('cikgu-form');
       var cikguInput = document.getElementById('cikgu-input');
       var cikguChatBox = document.getElementById('cikgu-chat-box');
@@ -310,7 +272,6 @@ app.get('/', (c) => {
   `);
 });
 
-// ENDPOINT LIVE CHAT ASAL
 app.post('/api/chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -330,7 +291,6 @@ app.post('/api/chat', async (c) => {
   }
 });
 
-// ENDPOINT KHAS CIKGUBOT
 app.post('/api/cikgu-chat', async (c) => {
   try {
     const body = await c.req.json();
@@ -350,7 +310,6 @@ app.post('/api/cikgu-chat', async (c) => {
   }
 });
 
-// ENDPOINT PERMOHONAN
 app.post('/register', async (c) => {
   try {
     const body = await c.req.parseBody();
@@ -391,7 +350,6 @@ app.post('/register', async (c) => {
   }
 });
 
-// WEBHOOK TELEGRAM
 app.post('/webhook', async (c) => {
   try {
     const update = await c.req.json();
@@ -427,7 +385,6 @@ app.post('/webhook', async (c) => {
   return c.text('OK');
 });
 
-// WEBHOOK WHATSAPP
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');

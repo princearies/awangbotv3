@@ -1,8 +1,8 @@
-import { Hono } from 'hono';
+﻿import { Hono } from 'hono';
 const app = new Hono();
 
-// --- Telegram Function (Kau punya asal, aku kekalkan) ---
-async function sendTelegramMessage(token: string, chatId: string, text: string) {
+// --- Telegram Function ---
+async function sendTelegramMessage(token, chatId, text) {
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -31,10 +31,10 @@ Arahan jawapan:
 
 app.get('/', (c) => c.text('AwangBot v4 Dual Active! Telegram+WhatsApp'));
 
-// --- 1. TELEGRAM WEBHOOK (Sudah hidup) ---
+// --- 1. TELEGRAM WEBHOOK ---
 app.post('/webhook', async (c) => {
   try {
-    const update: any = await c.req.json();
+    const update = await c.req.json();
     if (update.message?.text) {
       const chatId = String(update.message.chat.id);
       const text = update.message.text.trim();
@@ -44,7 +44,7 @@ app.post('/webhook', async (c) => {
         return c.text('OK');
       }
 
-      const ai: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const ai = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
         messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
       });
       await sendTelegramMessage(c.env.BOT_TOKEN, chatId, ai.response || 'Maaf, cuba lagi.');
@@ -56,7 +56,7 @@ app.post('/webhook', async (c) => {
   return c.text('OK');
 });
 
-// --- 2. WHATSAPP WEBHOOK (BARU - Untuk SIM kedua) ---
+// --- 2. WHATSAPP WEBHOOK ---
 // Verification untuk Facebook
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
@@ -71,14 +71,14 @@ app.get('/webhook/whatsapp', (c) => {
 // Terima message WhatsApp
 app.post('/webhook/whatsapp', async (c) => {
   try {
-    const body: any = await c.req.json();
+    const body = await c.req.json();
     const msg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    if (!msg ||!msg.text) return c.json({ ok: true });
+    if (!msg || !msg.text) return c.json({ ok: true });
 
-    const from = msg.from; // no ibu bapa
+    const from = msg.from; // no ibu bapa/pelanggan
     const text = msg.text.body;
 
-    const ai: any = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const ai = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
     });
 

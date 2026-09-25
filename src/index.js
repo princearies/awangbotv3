@@ -1,11 +1,18 @@
 ﻿import { Hono } from 'hono';
 import { AWANGBOT_PROMPT } from './prompts/awangbot.js';
 import { CIKGU_PROMPT } from './prompts/cikgu.js';
-import { INFLUENCER_PROMPT } from './prompts/influencer.js';
-import { ENTERPRISE_PROMPT } from './prompts/enterprise.js';
 import { BANK_PROMPT } from './prompts/bank.js';
 
+// Import Semua Konfigurasi Tab
+import { CHAT_TAB } from './tabs/chat.js';
+import { CIKGU_TAB } from './tabs/cikgu.js';
+import { BANK_TAB } from './tabs/bank.js';
+import { FORM_TAB } from './tabs/form.js';
+
 const app = new Hono();
+
+// Senarai Tab Aktif Portal
+const TABS = [CHAT_TAB, CIKGU_TAB, BANK_TAB, FORM_TAB];
 
 function escapeHtml(value = '') {
   return String(value)
@@ -20,11 +27,7 @@ async function sendTelegramMessage(token, chatId, text) {
   await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: text,
-      parse_mode: 'HTML',
-    }),
+    body: JSON.stringify({ chat_id: chatId, text: text, parse_mode: 'HTML' }),
   });
 }
 
@@ -35,32 +38,58 @@ async function askAi(env, message, customPrompt = null) {
       { role: 'user', content: message },
     ],
   });
-
   return ai?.response || 'Maaf, saya kurang pasti. Sila cuba soalan lain.';
 }
 
 async function saveLead(env, nama, notes) {
   try {
-    await env.DB.prepare(
-      'INSERT INTO leads (nama_pelanggan, soalan) VALUES (?, ?)'
-    ).bind(nama, notes).run();
+    await env.DB.prepare('INSERT INTO leads (nama_pelanggan, soalan) VALUES (?, ?)').bind(nama, notes).run();
   } catch (err) {
     console.warn('DB insert failed:', err);
   }
 }
 
 app.get('/', (c) => {
+  const navButtons = TABS.map((t, idx) => `
+    <button type="button" data-tab="${t.id}" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition ${idx === 0 ? t.activeColor + ' text-white' : 'text-slate-400 hover:text-white'}">
+      ${t.label}
+    </button>
+  `).join('');
+
+  const chatPanels = TABS.filter(t => t.id !== 'form').map((t, idx) => `
+    <section id="tab-${t.id}" class="tab-panel ${idx === 0 ? '' : 'hidden'} flex flex-col flex-1 overflow-hidden">
+      ${t.headerBanner ? `<div class="p-2.5 bg-slate-900/80 border-b border-slate-700/50 text-xs text-slate-300 flex items-center justify-between"><span>${t.headerBanner}</span><span class="bg-green-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">Aktif</span></div>` : ''}
+
+      <div id="${t.id}-chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
+        <div class="flex items-start">
+          <div class="max-w-[85%] bg-slate-700/50 border border-slate-600/50 p-3 rounded-2xl text-sm">
+            ${t.welcomeMsg}
+          </div>
+        </div>
+      </div>
+
+      <div id="${t.id}-loading" class="hidden px-4 py-1 text-xs text-slate-400 italic">
+        Bot sedang memikirkan jawapan...
+      </div>
+
+      <div class="p-3 border-t border-slate-700 bg-slate-800/90">
+        <form id="${t.id}-form" class="flex gap-2">
+          <input id="${t.id}-input" type="text" required placeholder="${t.placeholder}" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500" />
+          <button type="submit" class="bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-xl font-bold text-sm transition">Hantar</button>
+        </form>
+      </div>
+    </section>
+  `).join('');
+
   return c.html(`
     <!DOCTYPE html>
     <html lang="ms">
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>AwangBot78 - Live Chat & CikguBot Portal</title>
+      <title>AwangBot78 - Multi-Bot Portal</title>
       <script src="https://cdn.tailwindcss.com"></script>
-      <style>
-        body { background: #020817; }
-      </style>
+      <style> body { background: #020817; } </style>
     </head>
     <body class="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
       <div class="w-full max-w-xl h-[88vh] bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
@@ -69,100 +98,26 @@ app.get('/', (c) => {
             <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
             <span class="font-bold text-blue-400 text-sm md:text-base">AwangBot78 Portal</span>
           </div>
-
           <div class="flex gap-1 rounded-xl bg-slate-900 p-1 border border-slate-700 text-xs">
-            <button type="button" data-tab="chat" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition bg-blue-600 text-white">💬 Live Chat</button>
-            <button type="button" data-tab="cikgu" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition text-slate-400 hover:text-white">👨‍🏫 CikguBot Demo</button>
-            <button type="button" data-tab="form" class="tab-btn px-2.5 py-1.5 rounded-lg font-bold transition text-slate-400 hover:text-white">📝 Permohonan</button>
+            ${navButtons}
           </div>
         </header>
 
-        <section id="tab-chat" class="tab-panel flex flex-col flex-1 overflow-hidden">
-          <div id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
-            <div class="flex items-start">
-              <div class="max-w-[85%] bg-blue-600/30 border border-blue-500/30 p-3 rounded-2xl text-sm">
-                👋 <b>Hai! Saya AwangBot78.</b><br>
-                Tanya saya tentang tempahan bot custom, atau cuba tab <b>CikguBot Demo</b> untuk lihat contoh bot latihan!
-              </div>
-            </div>
-          </div>
+        ${chatPanels}
 
-          <div id="loading" class="hidden px-4 py-1 text-xs text-slate-400 italic">
-            AwangBot78 sedang menaip...
-          </div>
-
-          <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="chat-form" class="flex gap-2">
-              <input
-                id="user-input"
-                type="text"
-                required
-                placeholder="Taip soalan tempahan bot..."
-                class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
-              />
-              <button
-                type="submit"
-                class="bg-blue-600 hover:bg-blue-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
-              >
-                Hantar
-              </button>
-            </form>
-          </div>
-        </section>
-
-        <section id="tab-cikgu" class="tab-panel hidden flex flex-col flex-1 overflow-hidden">
-          <div class="p-3 bg-emerald-950/50 border-b border-emerald-800/50 text-xs text-emerald-300 flex items-center justify-between">
-            <span>📚 <b>CikguBot (Tutor AI):</b> Sedia membantu soalan subjek Sekolah/Tuisyen!</span>
-            <span class="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">Aktif</span>
-          </div>
-
-          <div id="cikgu-chat-box" class="flex-1 overflow-y-auto p-4 space-y-4">
-            <div class="flex items-start">
-              <div class="max-w-[85%] bg-emerald-600/20 border border-emerald-500/30 p-3 rounded-2xl text-sm">
-                👨‍🏫 <b>Selamat datang ke CikguBot!</b><br>
-                Saya ialah Pembantu Tutor AI. Tanya saya apa sahaja soalan Matematik, Sains, Sejarah atau Bahasa Melayu!
-              </div>
-            </div>
-          </div>
-
-          <div id="cikgu-loading" class="hidden px-4 py-1 text-xs text-emerald-400 italic">
-            CikguBot sedang memikirkan jawapan...
-          </div>
-
-          <div class="p-3 border-t border-slate-700 bg-slate-800/90">
-            <form id="cikgu-form" class="flex gap-2">
-              <input
-                id="cikgu-input"
-                type="text"
-                required
-                placeholder="Tanya soalan pelajaran di sini..."
-                class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
-              />
-              <button
-                type="submit"
-                class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold text-sm transition"
-              >
-                Tanya Cikgu
-              </button>
-            </form>
-          </div>
-        </section>
-
+        <!-- TAB BORANG PERMOHONAN -->
         <section id="tab-form" class="tab-panel hidden flex-1 overflow-y-auto p-5">
           <h2 class="text-xl font-bold text-blue-400 mb-1">Borang Permohonan Bot Custom</h2>
           <p class="text-xs text-slate-400 mb-4">Isi maklumat di bawah untuk pendaftaran tempahan bot anda.</p>
-
           <form id="lead-form" action="/register" method="POST" class="space-y-3">
             <div>
               <label class="block text-xs font-medium mb-1 text-slate-300">Nama Anda / Syarikat</label>
               <input name="nama" type="text" required placeholder="Contoh: Ahmad / Kedai Makanan" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
             </div>
-
             <div>
               <label class="block text-xs font-medium mb-1 text-slate-300">Nombor WhatsApp / Telegram</label>
               <input name="kontak" type="text" required placeholder="Contoh: 0123456789 atau @ahmad" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
             </div>
-
             <div>
               <label class="block text-xs font-medium mb-1 text-slate-300">Pilihan Pakej</label>
               <select name="pakej" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
@@ -171,46 +126,34 @@ app.get('/', (c) => {
                 <option value="Pakej C (RM130)">Pakej C (RM130) — Bot Lengkap Custom</option>
               </select>
             </div>
-
             <div>
               <label class="block text-xs font-medium mb-1 text-slate-300">Fungsi Bot Yang Diingini</label>
               <textarea name="soalan" rows="3" required placeholder="Terangkan keperluan bot anda..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"></textarea>
             </div>
-
-            <button type="submit" class="w-full bg-green-600 hover:bg-green-500 font-bold py-2.5 rounded-lg transition duration-200 text-sm shadow-lg shadow-green-500/20">
-              Hantar Permohonan
-            </button>
+            <button type="submit" class="w-full bg-green-600 hover:bg-green-500 font-bold py-2.5 rounded-lg transition duration-200 text-sm shadow-lg shadow-green-500/20">Hantar Permohonan</button>
           </form>
         </section>
       </div>
     </body>
 
     <script>
+      var tabsConfig = ${JSON.stringify(TABS)};
+
       function escapeHtml(value) {
-        return String(value || '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
+        return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
       }
 
-      function switchTab(tab) {
-        var panels = document.querySelectorAll('.tab-panel');
-        var buttons = document.querySelectorAll('.tab-btn');
+      function switchTab(selectedTab) {
+        document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.add('hidden'); });
+        var targetPanel = document.getElementById('tab-' + selectedTab);
+        if (targetPanel) targetPanel.classList.remove('hidden');
 
-        panels.forEach(function(panel) {
-          panel.classList.toggle('hidden', panel.id !== 'tab-' + tab);
-        });
+        document.querySelectorAll('.tab-btn').forEach(function(btn) {
+          var isCurrent = btn.dataset.tab === selectedTab;
+          var tabObj = tabsConfig.find(function(t) { return t.id === btn.dataset.tab; });
+          var activeClass = tabObj ? tabObj.activeColor : 'bg-blue-600';
 
-        buttons.forEach(function(btn) {
-          var active = btn.dataset.tab === tab;
-          btn.classList.toggle('bg-blue-600', active && tab === 'chat');
-          btn.classList.toggle('bg-emerald-600', active && tab === 'cikgu');
-          btn.classList.toggle('bg-green-600', active && tab === 'form');
-          btn.classList.toggle('text-white', active);
-          btn.classList.toggle('text-slate-400', !active);
-          btn.classList.toggle('hover:text-white', !active);
+          btn.className = 'tab-btn px-2.5 py-1.5 rounded-lg font-bold transition ' + (isCurrent ? activeClass + ' text-white' : 'text-slate-400 hover:text-white');
         });
       }
 
@@ -218,244 +161,90 @@ app.get('/', (c) => {
         btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
       });
 
-      async function sendChatMessage(inputElem, boxElem, loadingElem, apiPath, badgeTitle, borderStyle) {
-        var text = inputElem.value.trim();
-        if (!text) return;
+      tabsConfig.filter(function(t) { return t.id !== 'form'; }).forEach(function(t) {
+        var formElem = document.getElementById(t.id + '-form');
+        var inputElem = document.getElementById(t.id + '-input');
+        var boxElem = document.getElementById(t.id + '-chat-box');
+        var loadingElem = document.getElementById(t.id + '-loading');
 
-        var isCikgu = badgeTitle.indexOf('Cikgu') !== -1;
-        var bgBubble = isCikgu ? 'bg-emerald-600' : 'bg-blue-600';
+        if (formElem) {
+          formElem.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            var text = inputElem.value.trim();
+            if (!text) return;
 
-        var userBubble = '<div class="flex justify-end"><div class="' + bgBubble + ' p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
+            var userBubble = '<div class="flex justify-end"><div class="' + (t.activeColor || 'bg-blue-600') + ' p-3 rounded-2xl max-w-[85%] text-sm text-white shadow">' + escapeHtml(text) + '</div></div>';
+            boxElem.insertAdjacentHTML('beforeend', userBubble);
+            inputElem.value = '';
+            boxElem.scrollTop = boxElem.scrollHeight;
+            loadingElem.classList.remove('hidden');
 
-        boxElem.insertAdjacentHTML('beforeend', userBubble);
-        inputElem.value = '';
-        boxElem.scrollTop = boxElem.scrollHeight;
-        loadingElem.classList.remove('hidden');
+            try {
+              var response = await fetch(t.apiPath, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text }),
+              });
+              var data = await response.json();
+              if (!response.ok) throw new Error(data?.error || 'Ralat API.');
 
-        try {
-          var response = await fetch(apiPath, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text }),
+              var botBubble = '<div class="flex items-start"><div class="bg-slate-700 ' + t.borderStyle + ' p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">' + (t.badge ? '<b>' + t.badge + '</b><br>' : '') + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
+              boxElem.insertAdjacentHTML('beforeend', botBubble);
+            } catch (err) {
+              var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message) + '</div></div>';
+              boxElem.insertAdjacentHTML('beforeend', errorBubble);
+            } finally {
+              loadingElem.classList.add('hidden');
+              boxElem.scrollTop = boxElem.scrollHeight;
+            }
           });
-          var data = await response.json();
-          if (!response.ok) throw new Error(data?.error || 'Ralat API chat.');
-
-          var botBubble = '<div class="flex items-start"><div class="bg-slate-700 ' + borderStyle + ' p-3 rounded-2xl max-w-[85%] text-sm text-slate-100 shadow">' + (badgeTitle ? '<b>' + badgeTitle + '</b><br>' : '') + escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
-          boxElem.insertAdjacentHTML('beforeend', botBubble);
-        } catch (err) {
-          var errorBubble = '<div class="flex items-start"><div class="bg-red-500/20 border border-red-500/30 p-3 rounded-2xl max-w-[85%] text-sm text-slate-100">⚠️ ' + escapeHtml(err.message || 'Sistem AI gagal diproses.') + '</div></div>';
-          boxElem.insertAdjacentHTML('beforeend', errorBubble);
-        } finally {
-          loadingElem.classList.add('hidden');
-          boxElem.scrollTop = boxElem.scrollHeight;
         }
-      }
-
-      var chatForm = document.getElementById('chat-form');
-      var userInput = document.getElementById('user-input');
-      var chatBox = document.getElementById('chat-box');
-      var loading = document.getElementById('loading');
-
-      chatForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        sendChatMessage(userInput, chatBox, loading, '/api/chat', '', 'border-slate-600');
-      });
-
-      var cikguForm = document.getElementById('cikgu-form');
-      var cikguInput = document.getElementById('cikgu-input');
-      var cikguChatBox = document.getElementById('cikgu-chat-box');
-      var cikguLoading = document.getElementById('cikgu-loading');
-
-      cikguForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        sendChatMessage(cikguInput, cikguChatBox, cikguLoading, '/api/cikgu-chat', '👨‍🏫 [CikguBot]', 'border-emerald-500/40');
       });
     </script>
     </html>
   `);
 });
 
+// API ROUTINGS
 app.post('/api/chat', async (c) => {
-  try {
-    const body = await c.req.json();
-    const message = String(body.message || '').trim();
-
-    if (!message) {
-      return c.json({ error: 'Mesej kosong.' }, 400);
-    }
-
-    const reply = await askAi(c.env, message, AWANGBOT_PROMPT);
-    await saveLead(c.env, 'Web Chat User', message);
-
-    return c.json({ reply });
-  } catch (err) {
-    console.error('Chat route error:', err);
-    return c.json({ error: 'Ralat pemprosesan web chat.' }, 500);
-  }
+  const body = await c.req.json();
+  const reply = await askAi(c.env, String(body.message || '').trim(), AWANGBOT_PROMPT);
+  await saveLead(c.env, 'Web Chat User', body.message);
+  return c.json({ reply });
 });
 
 app.post('/api/cikgu-chat', async (c) => {
-  try {
-    const body = await c.req.json();
-    const message = String(body.message || '').trim();
-
-    if (!message) {
-      return c.json({ error: 'Mesej kosong.' }, 400);
-    }
-
-    const reply = await askAi(c.env, message, CIKGU_PROMPT);
-    await saveLead(c.env, 'CikguBot User', message);
-
-    return c.json({ reply });
-  } catch (err) {
-    console.error('CikguBot Chat route error:', err);
-    return c.json({ error: 'Ralat pemprosesan CikguBot Chat.' }, 500);
-  }
+  const body = await c.req.json();
+  const reply = await askAi(c.env, String(body.message || '').trim(), CIKGU_PROMPT);
+  await saveLead(c.env, 'CikguBot User', body.message);
+  return c.json({ reply });
 });
 
-// ENDPOINT KHAS BANKBOT
 app.post('/api/bank-chat', async (c) => {
-  try {
-    const body = await c.req.json();
-    const message = String(body.message || '').trim();
-
-    if (!message) {
-      return c.json({ error: 'Mesej kosong.' }, 400);
-    }
-
-    const reply = await askAi(c.env, message, BANK_PROMPT);
-    await saveLead(c.env, 'BankBot Lead', message);
-
-    return c.json({ reply });
-  } catch (err) {
-    console.error('BankBot Chat route error:', err);
-    return c.json({ error: 'Ralat pemprosesan BankBot Chat.' }, 500);
-  }
+  const body = await c.req.json();
+  const reply = await askAi(c.env, String(body.message || '').trim(), BANK_PROMPT);
+  await saveLead(c.env, 'BankBot Lead', body.message);
+  return c.json({ reply });
 });
 
 app.post('/register', async (c) => {
-  try {
-    const body = await c.req.parseBody();
-    const nama = String(body.nama || '').trim() || 'Tanpa Nama';
-    const kontak = String(body.kontak || '').trim() || '-';
-    const pakej = String(body.pakej || '').trim() || '-';
-    const soalan = String(body.soalan || '').trim() || '-';
-
-    const infoLengkap = '[Permohonan Web] Kontak: ' + kontak + ' | Pakej: ' + pakej + ' | Keperluan: ' + soalan;
-
-    await saveLead(c.env, nama, infoLengkap);
-
-    return c.html(`
-      <!DOCTYPE html>
-      <html lang="ms">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <script src="https://cdn.tailwindcss.com"></script>
-      </head>
-      <body class="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
-        <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 text-center border border-slate-700 shadow-2xl">
-          <div class="text-green-400 text-5xl mb-4">✅</div>
-          <h2 class="text-2xl font-bold mb-2">Permohonan Berjaya!</h2>
-          <p class="text-slate-300 mb-6">
-            Terima kasih <b>${escapeHtml(nama)}</b>. Maklumat anda telah disimpan ke sistem AwangBot78.
-          </p>
-          <a href="/" class="inline-block bg-blue-600 px-6 py-2 rounded-lg font-semibold hover:bg-blue-500 transition">
-            Kembali ke Web
-          </a>
-        </div>
-      </body>
-      </html>
-    `);
-  } catch (err) {
-    console.error('Register route error:', err);
-    return c.text('Ralat permohonan: ' + err.message, 500);
-  }
+  const body = await c.req.parseBody();
+  await saveLead(c.env, String(body.nama || 'Tanpa Nama'), '[Permohonan] Kontak: ' + body.kontak + ' | Pakej: ' + body.pakej);
+  return c.html('<div style="background:#020817;color:white;text-align:center;padding:50px;"><h2>✅ Permohonan Berjaya!</h2><a href="/" style="color:#3b82f6;">Kembali ke Web</a></div>');
 });
 
 app.post('/webhook', async (c) => {
-  try {
-    const update = await c.req.json();
-
-    if (!update?.message?.text) {
-      return c.text('OK');
-    }
-
-    const chatId = String(update.message.chat.id);
-    const text = String(update.message.text).trim();
-
-    if (text === '/start') {
-      await sendTelegramMessage(
-        c.env.BOT_TOKEN,
-        chatId,
-        '👋 <b>Hai! Saya AwangBot78.</b>\nKami bina bot AI custom untuk cikgu, influencer, syarikat dan bisnes. Cakap apa jenis bot yang anda nak.'
-      );
-      return c.text('OK');
-    }
-
-    try {
-      const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
-      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, aiReply);
-      await saveLead(c.env, String(chatId), text);
-    } catch (err) {
-      console.error('Telegram AI error:', err);
-      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '⚠️ Maaf, sistem AI mengalami gangguan seketika.');
-    }
-  } catch (err) {
-    console.error('Webhook error:', err);
+  const update = await c.req.json();
+  if (!update?.message?.text) return c.text('OK');
+  const chatId = String(update.message.chat.id);
+  const text = String(update.message.text).trim();
+  if (text === '/start') {
+    await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '👋 Hai! Saya AwangBot78.');
+    return c.text('OK');
   }
-
+  const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
+  await sendTelegramMessage(c.env.BOT_TOKEN, chatId, aiReply);
   return c.text('OK');
-});
-
-app.get('/webhook/whatsapp', (c) => {
-  const mode = c.req.query('hub.mode');
-  const token = c.req.query('hub.verify_token');
-  const challenge = c.req.query('hub.challenge');
-
-  if (mode === 'subscribe' && token === c.env.VERIFY_TOKEN) {
-    return c.text(challenge || '');
-  }
-
-  return c.text('Forbidden', 403);
-});
-
-app.post('/webhook/whatsapp', async (c) => {
-  try {
-    const body = await c.req.json();
-    const msg = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-
-    if (!msg || !msg.text) {
-      return c.json({ ok: true });
-    }
-
-    const from = msg.from;
-    const text = String(msg.text.body || '').trim();
-
-    try {
-      const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
-      await fetch('https://graph.facebook.com/v20.0/' + c.env.PHONE_NUMBER_ID + '/messages', {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + c.env.ACCESS_TOKEN,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: from,
-          text: { body: aiReply || 'Maaf, sila cuba lagi.' },
-        }),
-      });
-      await saveLead(c.env, from, text);
-    } catch (err) {
-      console.error('WhatsApp AI error:', err);
-    }
-  } catch (err) {
-    console.error('WhatsApp webhook error:', err);
-  }
-
-  return c.json({ ok: true });
 });
 
 export default app;

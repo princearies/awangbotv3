@@ -1,7 +1,6 @@
 ﻿import { Hono } from 'hono';
 const app = new Hono();
 
-// --- Telegram Function ---
 async function sendTelegramMessage(token, chatId, text) {
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
@@ -44,10 +43,16 @@ app.post('/webhook', async (c) => {
         return c.text('OK');
       }
 
-      const ai = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
-      });
-      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, ai.response || 'Maaf, cuba lagi.');
+      // Guna model Llama 3.2 3B yang lebih stabil + ditambah try/catch
+      try {
+        const ai = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+          messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
+        });
+        await sendTelegramMessage(c.env.BOT_TOKEN, chatId, ai.response || 'Maaf, saya kurang pasti. Sila cuba soalan lain.');
+      } catch (aiErr) {
+        console.error('AI Error:', aiErr);
+        await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '⚠️ Maaf, sistem AI mengalami gangguan seketika. Sila cuba lagi.');
+      }
 
       // Simpan lead
       try { await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(chatId, text).run() } catch(e){}
@@ -57,7 +62,6 @@ app.post('/webhook', async (c) => {
 });
 
 // --- 2. WHATSAPP WEBHOOK ---
-// Verification untuk Facebook
 app.get('/webhook/whatsapp', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');
@@ -68,29 +72,32 @@ app.get('/webhook/whatsapp', (c) => {
   return c.text('Forbidden', 403);
 });
 
-// Terima message WhatsApp
 app.post('/webhook/whatsapp', async (c) => {
   try {
     const body = await c.req.json();
     const msg = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
     if (!msg || !msg.text) return c.json({ ok: true });
 
-    const from = msg.from; // no ibu bapa/pelanggan
+    const from = msg.from;
     const text = msg.text.body;
 
-    const ai = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
-    });
+    try {
+      const ai = await c.env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: text }]
+      });
 
-    await fetch(`https://graph.facebook.com/v20.0/${c.env.PHONE_NUMBER_ID}/messages`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${c.env.ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: from,
-        text: { body: ai.response }
-      })
-    });
+      await fetch(`https://graph.facebook.com/v20.0/${c.env.PHONE_NUMBER_ID}/messages`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${c.env.ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: from,
+          text: { body: ai.response || 'Maaf, sila cuba lagi.' }
+        })
+      });
+    } catch (aiErr) {
+      console.error('WhatsApp AI Error:', aiErr);
+    }
 
     try { await c.env.DB.prepare("INSERT INTO leads (nama_pelanggan, soalan) VALUES (?,?)").bind(from, text).run() } catch(e){}
   } catch (e) { console.error(e) }

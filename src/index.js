@@ -266,7 +266,10 @@ app.get('/', (c) => {
     </section>
   `).join('');
 
-  return c.html(`
+  // String.raw: JANGAN tukar ke template literal biasa. Tanpa ia, \x60 \* \s \n
+  // di dalam <script> akan dimakan sebagai escape JS semasa render — regex jadi
+  // rosak, <script> gagal parse, dan SELURUH frontend mati (chat tak berfungsi).
+  return c.html(String.raw`
     <!DOCTYPE html>
     <html lang="ms">
     <head>

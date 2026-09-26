@@ -293,8 +293,11 @@ app.get('/', (c) => {
           -ms-overflow-style: none;
           scroll-snap-type: x proximity;
           -webkit-overflow-scrolling: touch;
+          scroll-padding-inline: 1rem;
+          overscroll-behavior-x: contain;
         }
         .tab-strip::-webkit-scrollbar { display: none; }
+        select#tab-select option { background: #1e293b; color: #f1f5f9; }
         .bubble-bot { background: rgba(30,41,59,.72); border-radius: 1rem 1rem 1rem .25rem; color: #e2e8f0; backdrop-filter: blur(4px); }
         .bubble-me { background: linear-gradient(135deg,#3b82f6,#2563eb); border-radius: 1rem 1rem .25rem 1rem; color:#fff; box-shadow:0 8px 20px -8px rgba(37,99,235,.6); }
         .bubble-err { background: rgba(127,29,29,.22); border:1px solid rgba(248,113,113,.3); border-radius:1rem 1rem 1rem .25rem; }
@@ -319,6 +322,17 @@ app.get('/', (c) => {
             </div>
             <span class="shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-300 bg-white/5 border border-white/10 px-2.5 py-1 rounded-full">Live</span>
           </div>
+
+          <div class="px-4 pb-2">
+            <div class="relative">
+              <select id="tab-select" aria-label="Pilih bot" class="w-full appearance-none bg-slate-800/80 border border-white/10 rounded-xl pl-9 pr-9 py-2.5 text-sm font-semibold text-white focus:outline-none focus:border-blue-500/60 transition">
+                ${TABS.map((t) => `<option value="${t.id}">${t.label}</option>`).join('')}
+              </select>
+              <span id="tab-select-icon" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm">${TABS[0].icon || ''}</span>
+              <svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+          </div>
+
           <div class="tab-strip flex gap-1.5 overflow-x-auto px-4 pb-3">
             ${navButtons}
           </div>
@@ -420,11 +434,23 @@ app.get('/', (c) => {
         if (activeBtn && activeBtn.scrollIntoView) {
           activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         }
+
+        var sel = document.getElementById('tab-select');
+        if (sel && sel.value !== selectedTab) sel.value = selectedTab;
+
+        var selIcon = document.getElementById('tab-select-icon');
+        var selObj = tabsConfig.find(function(t) { return t.id === selectedTab; });
+        if (selIcon && selObj) selIcon.textContent = selObj.icon || '';
       }
 
       document.querySelectorAll('.tab-btn').forEach(function(btn) {
         btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
       });
+
+      var tabSelect = document.getElementById('tab-select');
+      if (tabSelect) {
+        tabSelect.addEventListener('change', function() { switchTab(tabSelect.value); });
+      }
 
       document.querySelectorAll('.chip-btn').forEach(function(chip) {
         chip.addEventListener('click', function() {

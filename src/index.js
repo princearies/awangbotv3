@@ -348,6 +348,30 @@ app.get('/', (c) => {
         return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
       }
 
+      function renderMarkdown(raw) {
+        var s = escapeHtml(raw);
+        s = s.replace(/\x60\x60\x60([\s\S]*?)\x60\x60\x60/g, function(m, code) {
+          return '<pre class="my-2 p-2.5 rounded-lg bg-black/40 overflow-x-auto text-[12px] leading-relaxed"><code>' + code.trim() + '</code></pre>';
+        });
+        s = s.replace(/\x60([^\x60\n]+)\x60/g, '<code class="px-1 py-0.5 rounded bg-black/35 text-[12px] font-mono">$1</code>');
+        s = s.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<b><i>$1</i></b>');
+        s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+        s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
+        s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-300 underline">$1</a>');
+        s = s.replace(/^(#{1,6})\s+(.+)$/gm, function(m, h, t) {
+          return '<b class="block mt-2 mb-1 text-slate-50">' + t + '</b>';
+        });
+        s = s.split('\n').map(function(line) {
+          var m = line.match(/^\s*[-*\u2022]\s+(.*)$/);
+          if (m) return '<span class="flex gap-1.5 my-0.5"><span class="text-slate-400 select-none">\u2022</span><span>' + m[1] + '</span></span>';
+          var n = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
+          if (n) return '<span class="flex gap-1.5 my-0.5"><span class="text-slate-400 select-none">' + n[1] + '.</span><span>' + n[2] + '</span></span>';
+          if (!line.trim()) return '<div class="h-1.5"></div>';
+          return '<div>' + line + '</div>';
+        }).join('');
+        return s;
+      }
+
       function switchTab(selectedTab) {
         document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.add('hidden'); });
         var targetPanel = document.getElementById('tab-' + selectedTab);
@@ -422,7 +446,7 @@ app.get('/', (c) => {
                 '<div class="w-7 h-7 rounded-lg ' + accent + ' grid place-items-center text-xs shrink-0 mt-0.5">' + icon + '</div>' +
                 '<div class="bubble-bot border ' + botBorder + ' px-3.5 py-2.5 max-w-[82%] text-sm leading-relaxed break-words">' +
                 (t.badge ? '<b class="block text-[11px] mb-1 opacity-70">' + escapeHtml(t.badge) + '</b>' : '') +
-                escapeHtml(data.reply || 'Tiada jawapan.') + '</div></div>';
+                renderMarkdown(data.reply || 'Tiada jawapan.') + '</div></div>';
               boxElem.insertAdjacentHTML('beforeend', botBubble);
             } catch (err) {
               var errorBubble = '<div class="flex items-start gap-2 fade-in">' +

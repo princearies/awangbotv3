@@ -61,22 +61,113 @@ async function sendTelegramMessage(token, chatId, text) {
   }
 }
 
-async function askAi(env, message, customPrompt = null) {
-  try {
-    if (!env?.AI) {
-      return 'Maaf, perkhidmatan AI belum dikonfigurasi.';
-    }
-    const ai = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
-      messages: [
-        { role: 'system', content: customPrompt || AWANGBOT_PROMPT },
-        { role: 'user', content: message },
-      ],
-    });
-    return ai?.response || 'Maaf, saya kurang pasti. Sila cuba soalan lain.';
-  } catch (err) {
-    console.error('askAi error:', err);
-    return 'Maaf, sistem AI sedang memproses banyak permintaan. Sila cuba sebentar lagi.';
+// Pembela AI: Claude (prepaid) -> Cloudflare Workers AI (free)
+const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
+const CLAUDE_MAX_TOKENS = 1024;
+
+// Bila prepaid habis, flip suis ini supaya tak cuba Claude lagi
+// dalam isolate yang sama. Jimat latency setiap request.
+let claudeDisabled = false;
+let claudeDisabledReason = '';
+
+function isCreditExhausted(status, bodyText) {
+  if (status === 402) return true;
+  if (status !== 400 && status !== 429) return false;
+  const t = String(bodyText || '').toLowerCase();
+  const markers = [
+    'credit balance is too low',
+    'insufficient credit',
+    'credit balance too low',
+    'insufficient funds',
+    'payment required',
+    'quota exceeded',
+    'billing'
+  ];
+  return markers.some((m) => t.includes(m));
+}
+
+async function askClaude(env, message, systemPrompt) {
+  const apiKey = env?.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const model = env?.CLAUDE_MODEL || CLAUDE_DEFAULT_MODEL;
+
+  const res = await fetch(CLAUDE_API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: CLAUDE_MAX_TOKENS,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: message }]
+    })
+  });
+
+  if (res.ok) {
+    const data = await res.json().catch(() => null);
+    const text = (data?.content || [])
+      .filter((b) => b?.type === 'text' && b.text)
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
+    if (text) return text;
+    console.warn('Claude returned empty content, falling back.');
+    return null;
   }
+
+  const errText = await res.text().catch(() => '');
+
+  if (isCreditExhausted(res.status, errText)) {
+    claudeDisabled = true;
+    claudeDisabledReason = 'prepaid credit habis';
+    console.warn('Claude credit habis. Auto fallback ke Workers AI untuk isolate ini.');
+  } else if (res.status === 401 || res.status === 403) {
+    claudeDisabled = true;
+    claudeDisabledReason = 'API key tidak sah';
+    console.error('Claude auth gagal (HTTP ' + res.status + '). Auto fallback ke Workers AI.');
+  } else {
+    console.warn('Claude HTTP ' + res.status + ', guna fallback buat masa ini.');
+  }
+
+  return null;
+}
+
+async function askWorkersAi(env, message, systemPrompt) {
+  if (!env?.AI) return null;
+  const ai = await env.AI.run(env?.CF_MODEL || '@cf/meta/llama-3.2-3b-instruct', {
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: message }
+    ]
+  });
+  return (ai?.response || '').trim() || null;
+}
+
+async function askAi(env, message, customPrompt = null) {
+  const systemPrompt = customPrompt || AWANGBOT_PROMPT;
+
+  if (!claudeDisabled && env?.ANTHROPIC_API_KEY) {
+    try {
+      const out = await askClaude(env, message, systemPrompt);
+      if (out) return out;
+    } catch (err) {
+      console.warn('Claude request gagal, fallback:', err?.message || err);
+    }
+  }
+
+  try {
+    const out = await askWorkersAi(env, message, systemPrompt);
+    if (out) return out;
+  } catch (err) {
+    console.error('Workers AI error:', err);
+  }
+
+  return 'Maaf, sistem AI sedang sibuk. Sila cuba sebentar lagi.';
 }
 
 async function saveLead(env, nama, notes) {

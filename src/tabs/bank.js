@@ -1,6 +1,7 @@
-﻿export const BANK_TAB = {
+export const BANK_TAB = {
   id: 'bank',
   label: '🏦 BankBot Demo',
+  icon: '🏦',
   activeColor: 'bg-amber-600',
   apiPath: '/api/bank-chat',
   badge: '🏦 [BankBot]',

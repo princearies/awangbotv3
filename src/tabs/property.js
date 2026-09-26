@@ -1,6 +1,7 @@
-﻿export const PROPERTY_TAB = {
+export const PROPERTY_TAB = {
   id: 'property',
   label: '🏠 Hartanah & Sewa Bot',
+  icon: '🏠',
   activeColor: 'bg-purple-600',
   apiPath: '/api/property-chat',
   badge: '🏠 [PropertyBot Sabah]',

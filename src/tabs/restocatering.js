@@ -1,6 +1,7 @@
-﻿export const RESTOCATERING_TAB = {
+export const RESTOCATERING_TAB = {
   id: 'restocatering',
   label: '🍲 Resto & Catering Bot',
+  icon: '🍲',
   activeColor: 'bg-orange-600',
   apiPath: '/api/restocatering-chat',
   badge: '🍲 [Resto & Catering Bot]',

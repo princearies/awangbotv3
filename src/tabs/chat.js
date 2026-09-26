@@ -1,6 +1,7 @@
-﻿export const CHAT_TAB = {
+export const CHAT_TAB = {
   id: 'chat',
   label: '💬 Live Chat',
+  icon: '💬',
   activeColor: 'bg-blue-600',
   apiPath: '/api/chat',
   badge: '',

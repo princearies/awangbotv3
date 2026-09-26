@@ -1,6 +1,7 @@
-﻿export const PBT_TAB = {
+export const PBT_TAB = {
   id: 'pbt',
   label: '🏛️ PBT & Aduan Bot',
+  icon: '🏛️',
   activeColor: 'bg-emerald-700',
   borderStyle: 'border-emerald-600/50',
   badge: '🏛️ [ServisBot PBT Sabah]',

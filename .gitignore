@@ -1,0 +1,13 @@
+node_modules/
+.wrangler/
+.dev.vars
+
+# Backup & fail lama
+legacy_backup/
+*.bak
+*.bak.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

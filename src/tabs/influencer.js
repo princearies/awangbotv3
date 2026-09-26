@@ -1,6 +1,7 @@
-﻿export const INFLUENCER_TAB = {
+export const INFLUENCER_TAB = {
   id: 'influencer',
   label: '🌟 InfluencerBot Demo',
+  icon: '✨',
   activeColor: 'bg-pink-600',
   apiPath: '/api/influencer-chat',
   badge: '🌟 [InfluencerBot]',

@@ -1,6 +1,7 @@
-﻿export const CIKGU_TAB = {
+export const CIKGU_TAB = {
   id: 'cikgu',
   label: '👨‍🏫 CikguBot Demo',
+  icon: '🎓',
   activeColor: 'bg-emerald-600',
   apiPath: '/api/cikgu-chat',
   badge: '👨‍🏫 [CikguBot]',

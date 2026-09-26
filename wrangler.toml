@@ -6,6 +6,9 @@ compatibility_date = "2024-01-01"
 ADMIN_ID = "5495392497"
 # Tukar model Claude tanpa edit kod. Pilihan: claude-sonnet-5, claude-haiku-4-5, claude-opus-5
 CLAUDE_MODEL = "claude-sonnet-5"
+# Anak tangga fallback Cloudflare (dipisah comma), dari paling kuat ke paling murah.
+# Semua dalam free tier 10,000 neuron/hari. ~500 request/hari pada rung pertama.
+CF_MODEL_CHAIN = "@cf/qwen/qwen3-30b-a3b-fp8,@cf/openai/gpt-oss-20b,@cf/meta/llama-3.2-3b-instruct"
 
 [[d1_databases]]
 binding = "DB"

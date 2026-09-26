@@ -71,6 +71,14 @@ const CLAUDE_MAX_TOKENS = 1024;
 let claudeDisabled = false;
 let claudeDisabledReason = '';
 
+// Model Workers AI yang gagal, lumpuhkan supaya tak dicuba berulang
+const cfDisabledModels = new Set();
+
+// Anak tangga fallback Cloudflare, dari paling=kuat ke paling=murah.
+// Semua dalam free tier 10k neuron/hari. Qwen3 30B kos sama seperti Llama 3B
+// tetapi 10x saiz parameter, jadi ia letak pertama.
+const CF_DEFAULT_CHAIN = '@cf/qwen/qwen3-30b-a3b-fp8,@cf/openai/gpt-oss-20b,@cf/meta/llama-3.2-3b-instruct';
+
 function isCreditExhausted(status, bodyText) {
   if (status === 402) return true;
   if (status !== 400 && status !== 429) return false;
@@ -139,13 +147,30 @@ async function askClaude(env, message, systemPrompt) {
 
 async function askWorkersAi(env, message, systemPrompt) {
   if (!env?.AI) return null;
-  const ai = await env.AI.run(env?.CF_MODEL || '@cf/meta/llama-3.2-3b-instruct', {
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: message }
-    ]
-  });
-  return (ai?.response || '').trim() || null;
+
+  const chain = (env?.CF_MODEL_CHAIN || CF_DEFAULT_CHAIN)
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
+
+  for (const model of chain) {
+    if (cfDisabledModels.has(model)) continue;
+    try {
+      const ai = await env.AI.run(model, {
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ]
+      });
+      const out = (ai?.response || '').trim();
+      if (out) return out;
+      console.warn('CF model ' + model + ' kosong, Cuba yang seterusnya.');
+    } catch (err) {
+      cfDisabledModels.add(model);
+      console.warn('CF model ' + model + ' gagal, lumpuhkan untuk isolate ini:', err?.message || err);
+    }
+  }
+  return null;
 }
 
 async function askAi(env, message, customPrompt = null) {

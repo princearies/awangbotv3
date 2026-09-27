@@ -31,6 +31,25 @@ const TABS = [
   KLINIK_TAB, BURGER_TAB, NASIKUNING_TAB, FORM_TAB
 ];
 
+// ----------------- WEBHOOK 017 -----------------
+const VERIFY_017 = 'awang017';
+
+// Verifikasi webhook 017 (Challenge)
+app.get('/webhook-017', (c) => {
+  const token = c.req.query('hub.verify_token');
+  if (token === VERIFY_017) {
+    return c.text(c.req.query('hub.challenge') || '');
+  }
+  return c.text('Forbidden', 403);
+});
+
+// Penerimaan event 017
+app.post('/webhook-017', async (c) => {
+  const body = await c.req.json();
+  console.log('017:', JSON.stringify(body).slice(0, 1000));
+  return c.text('EVENT_RECEIVED');
+});
+
 function escapeHtml(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')

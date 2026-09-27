@@ -9,6 +9,10 @@ CLAUDE_MODEL = "claude-sonnet-5"
 # Anak tangga fallback Cloudflare (dipisah comma), dari paling kuat ke paling murah.
 # Semua dalam free tier 10,000 neuron/hari. ~500 request/hari pada rung pertama.
 CF_MODEL_CHAIN = "@cf/qwen/qwen3-30b-a3b-fp8,@cf/openai/gpt-oss-20b,@cf/meta/llama-3.2-3b-instruct"
+# Phone ID WABA 017 HQ Jualan. Bukan rahsia, jadi duduk sini sebagai var biasa.
+# Isi dengan nombor sebenar; selagi kosong, /webhook-017 simpan lead tapi tak hantar balasan.
+# Tokennya rahsia — jangan tulis di sini: npx wrangler secret put WHATSAPP_TOKEN_017
+PHONE_NUMBER_ID_017 = ""
 
 [[d1_databases]]
 binding = "DB"

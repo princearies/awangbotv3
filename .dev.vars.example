@@ -1,0 +1,31 @@
+# Salin fail ini kepada .dev.vars untuk kegunaan lokal (wrangler dev).
+# .dev.vars sudah di-ignore oleh git — JANGAN commit fail sebenar.
+#   copy .dev.vars.example .dev.vars
+#
+# Untuk production, letak rahsia dengan:
+#   npx wrangler secret put <NAMA>
+# Nilai bukan rahsia (phone id, model) boleh letak terus dalam wrangler.toml [vars].
+
+# ---- AI (optional) ----
+# Tanpa kunci ini, bot automatik jatuh ke Cloudflare Workers AI (free).
+ANTHROPIC_API_KEY=""
+CLAUDE_MODEL="claude-sonnet-5"
+CF_MODEL_CHAIN="@cf/qwen/qwen3-30b-a3b-fp8,@cf/openai/gpt-oss-20b,@cf/meta/llama-3.2-3b-instruct"
+
+# ---- Telegram (optional, untuk notifikasi admin) ----
+BOT_TOKEN=""
+ADMIN_ID="5495392497"
+
+# ---- WhatsApp Cloud API — nombor utama /webhook/whatsapp ----
+# Rahsia. Jangan commit.
+WHATSAPP_TOKEN=""
+# Bukan rahsia, boleh letak dalam wrangler.toml [vars].
+WHATSAPP_PHONE_ID=""
+# Token challenge Meta untuk webhook utama.
+WHATSAPP_VERIFY_TOKEN=""
+
+# ---- WhatsApp 017 HQ Jualan — /webhook-017 ----
+# Rahsia. Jangan commit.
+WHATSAPP_TOKEN_017=""
+# Bukan rahsia, boleh letak dalam wrangler.toml [vars].
+PHONE_NUMBER_ID_017=""

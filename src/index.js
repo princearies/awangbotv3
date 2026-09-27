@@ -9,6 +9,7 @@ import { PBT_PROMPT } from './prompts/pbt.js';
 import { KLINIK_PROMPT } from './prompts/klinik.js';
 import { BURGER_PROMPT } from './prompts/burger.js';
 import { NASIKUNING_PROMPT } from './prompts/nasikuning.js';
+import { PROMPT_017 } from './prompts/017.js';
 
 // Import Semua Konfigurasi Tab
 import { CHAT_TAB } from './tabs/chat.js';
@@ -31,23 +32,64 @@ const TABS = [
   KLINIK_TAB, BURGER_TAB, NASIKUNING_TAB, FORM_TAB
 ];
 
-// ----------------- WEBHOOK 017 -----------------
+// ----------------- WEBHOOK 017 (HQ JUALAN) -----------------
 const VERIFY_017 = 'awang017';
 
 // Verifikasi webhook 017 (Challenge)
 app.get('/webhook-017', (c) => {
   const token = c.req.query('hub.verify_token');
+  const challenge = c.req.query('hub.challenge');
   if (token === VERIFY_017) {
-    return c.text(c.req.query('hub.challenge') || '');
+    return c.text(challenge || 'OK', 200);
   }
   return c.text('Forbidden', 403);
 });
 
-// Penerimaan event 017
+// Penerimaan event 017: simpan lead, balas AI, hantar balik WhatsApp
 app.post('/webhook-017', async (c) => {
-  const body = await c.req.json();
-  console.log('017:', JSON.stringify(body).slice(0, 1000));
-  return c.text('EVENT_RECEIVED');
+  try {
+    const body = await c.req.json();
+    const entry = body?.entry?.[0]?.changes?.[0]?.value;
+    const msg = entry?.messages?.[0];
+    const from = msg?.from;
+    const text = msg?.text?.body || '';
+    const name = entry?.contacts?.[0]?.profile?.name || 'boss';
+
+    if (!from || !text) return c.text('EVENT_RECEIVED', 200);
+
+    // 1. Simpan lead ke D1
+    await saveLead(c.env, `017-Jualan (${name} / ${from})`, text);
+
+    // 2. Balasan AI (Claude -> Cloudflare Workers AI)
+    const replyText = await askAi(c.env, text, PROMPT_017);
+
+    // 3. Hantar balik melalui WhatsApp Cloud API
+    const token = c.env?.WHATSAPP_TOKEN_017;
+    const phoneId = c.env?.PHONE_NUMBER_ID_017;
+
+    if (token && phoneId) {
+      const res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: from,
+          text: { body: replyText },
+        }),
+      });
+      if (!res.ok) {
+        console.warn('017 hantar balasan gagal HTTP ' + res.status + ': ' + (await res.text().catch(() => '')));
+      }
+    } else {
+      console.warn('017: WHATSAPP_TOKEN_017 / PHONE_NUMBER_ID_017 belum ditetapkan, balasan tidak dihantar.');
+    }
+  } catch (err) {
+    console.error('017 error:', err);
+  }
+  return c.text('EVENT_RECEIVED', 200);
 });
 
 function escapeHtml(value = '') {

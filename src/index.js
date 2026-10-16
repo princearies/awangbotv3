@@ -1239,34 +1239,39 @@ app.post('/register', async (c) => {
 
 // ----------------- WEBHOOK TELEGRAM -----------------
 app.post('/webhook', async (c) => {
+  const update = await c.req.json().catch(() => null);
+  // Balas Telegram serta-merta (elak Read timeout), proses dalam background
+  c.executionCtx.waitUntil(handleTelegramUpdate(c.env, update).catch((e) => console.error('tg bg error:', e?.message)));
+  return c.text('OK');
+});
+
+async function handleTelegramUpdate(env, update) {
   try {
-    const update = await c.req.json();
-    if (!update?.message?.text) return c.text('OK');
+    if (!update?.message?.text) return;
     const chatId = String(update.message.chat.id);
     const text = String(update.message.text).trim();
 
     if (text === '/start') {
-      await sendTelegramMessage(c.env.BOT_TOKEN, chatId, '👋 Hai! Saya AwangBot78. Tanya saya tentang pakej dan perkhidmatan bot kustom untuk perniagaan anda.');
-      return c.text('OK');
+      await sendTelegramMessage(env.BOT_TOKEN, chatId, '👋 Hai! Saya AwangBot78. Tanya saya tentang pakej dan perkhidmatan bot kustom untuk perniagaan anda.');
+      return;
     }
 
-    // Owner commands (ADMIN_ID sahaja): PAID n | POS n TRACKING | SAMPAI n | STATUS n | REFUND n
-    if (c.env.ADMIN_ID && chatId === String(c.env.ADMIN_ID)) {
-      const handled = await handleOwnerCommand(c.env, text);
+    // Owner commands (ADMIN_ID sahaja): PAID n | POS n TRACKING | SAMPAI n | STATUS n | REFUND n | katalog
+    if (env.ADMIN_ID && chatId === String(env.ADMIN_ID)) {
+      const handled = await handleOwnerCommand(env, text);
       if (handled) {
-        await sendTelegramMessage(c.env.BOT_TOKEN, chatId, handled);
-        return c.text('OK');
+        await sendTelegramMessage(env.BOT_TOKEN, chatId, handled);
+        return;
       }
     }
 
-    const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
-    await sendTelegramMessage(c.env.BOT_TOKEN, chatId, aiReply);
-    await saveLead(c.env, `Telegram User (${chatId})`, text);
+    const aiReply = await askAi(env, text, AWANGBOT_PROMPT);
+    await sendTelegramMessage(env.BOT_TOKEN, chatId, aiReply);
+    await saveLead(env, `Telegram User (${chatId})`, text);
   } catch (err) {
     console.error('Telegram webhook error:', err);
   }
-  return c.text('OK');
-});
+}
 
 // ----------------- OWNER COMMANDS (Telegram, ADMIN_ID sahaja) -----------------
 async function setOrderStatus(env, id, status, tracking) {

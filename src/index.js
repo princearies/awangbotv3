@@ -862,13 +862,33 @@ app.get('/api/dropship-tracking', async (c) => {
   return c.json({ ok: true, ...hit });
 });
 
-// DEBUG sementara: lihat output mentah pengekstrak
+// DEBUG sementara: lihat bentuk mentah response setiap model Workers AI
 app.post('/api/debug-extract', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const history = Array.isArray(body.history) ? body.history : [];
-  const convo = history.map((m) => (m.role === 'assistant' ? 'MyKira: ' : 'Customer: ') + (m.content || '')).join('\n').slice(-3000);
-  const raw = await askWorkersAi(c.env, 'Perbualan:\n' + convo, EXTRACT_PROMPT);
-  return c.json({ raw });
+  const pick = String(body.model || '');
+  const models = pick
+    ? [pick]
+    : (c.env?.CF_MODEL_CHAIN || CF_DEFAULT_CHAIN).split(',').map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const m of models) {
+    try {
+      const ai = await c.env.AI.run(m, {
+        messages: [
+          { role: 'system', content: 'Say OK' },
+          { role: 'user', content: 'hi' },
+        ],
+      });
+      out.push({
+        model: m,
+        type: typeof ai?.response,
+        keys: ai && typeof ai === 'object' ? Object.keys(ai).slice(0, 10) : null,
+        preview: JSON.stringify(ai?.response ?? ai).slice(0, 300),
+      });
+    } catch (e) {
+      out.push({ model: m, error: String(e?.message || e).slice(0, 200) });
+    }
+  }
+  return c.json({ out });
 });
 
 app.post('/api/pbt-chat', async (c) => {

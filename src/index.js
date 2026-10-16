@@ -907,6 +907,7 @@ app.get('/api/order', async (c) => {
 // Halaman bayaran: DuitNow (MY) / SOL / USDC / PayPal (global)
 app.get('/pay', async (c) => {
   const orderId = String(c.req.query('order') || '').slice(0, 12);
+  const isDonate = String(c.req.query('donate') || '') === '1';
   const wallet = salesWallet(c.env);
   const duitnowQR = String(c.env?.DUITNOW_QR || '');
   const paypalMe = String(c.env?.PAYPAL_ME || '');
@@ -918,7 +919,7 @@ app.get('/pay', async (c) => {
 <body class="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
 <div class="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl p-6 space-y-4">
 <div class="text-center"><div class="text-2xl">💳</div>
-<h1 class="font-bold text-lg">MyKira Niaga — Bayaran</h1>
+<h1 class="font-bold text-lg">${isDonate ? 'MyKira Niaga — Derma ☕' : 'MyKira Niaga — Bayaran'}</h1>
 <p id="orderLine" class="text-xs text-slate-400">${orderId ? 'Order #' + escapeHtml(orderId) : 'Isi butiran order di bawah'}</p></div>
 <label class="block text-xs text-slate-400">Order ID (kalau ada)<input id="order" value="${escapeHtml(orderId)}" class="mt-1 w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-sm" placeholder="cth: 5"></label>
 <div class="grid grid-cols-4 gap-2">
@@ -944,12 +945,12 @@ ${paypalMe ? '<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220
 <a href="https://wa.me/60173735431" class="block text-center w-full bg-emerald-500 hover:bg-emerald-400 font-bold py-3 rounded-xl text-sm">Sahkan via WhatsApp 017</a>
 </div>
 <script>
-var wallet="${wallet}", usdcMint="${USDC_MINT}", token="duitnow";
+var wallet="${wallet}", usdcMint="${USDC_MINT}", token="duitnow", isDonate=${isDonate ? '1' : '0'};
 var duitnowQR=${JSON.stringify(duitnowQR)}, paypalMe=${JSON.stringify(paypalMe)};
 function solUrl(){
   var amt=parseFloat((document.getElementById('amount')||{}).value||'0');
   var ord=(document.getElementById('order')||{}).value||'';
-  var memo='MKIRA-'+(ord||'NA');
+  var memo=isDonate==='1'?'MKIRA-DONATE':'MKIRA-'+(ord||'NA');
   var u='solana:'+wallet+'?amount='+amt+'&label='+encodeURIComponent('MyKira Niaga')+'&message='+encodeURIComponent('Order '+memo)+'&memo='+encodeURIComponent(memo);
   if(token==='USDC') u+='&spl-token='+usdcMint;
   return u;

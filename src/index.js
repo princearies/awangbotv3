@@ -938,7 +938,7 @@ app.get('/pay', async (c) => {
 <button id="copyBtn" class="ml-2 px-2 py-1 text-[11px] bg-white/10 rounded-lg">Salin</button></div>
 </div>
 <div id="panel-paypal" class="hidden text-center">
-${paypalMe ? '<a id="ppBtn" href="#" class="inline-block w-full bg-sky-500 hover:bg-sky-400 font-bold py-3 rounded-xl text-sm">Bayar dengan PayPal →</a><p class="text-[11px] text-slate-500 mt-2">Fee PayPal ~4-5% ditanggung pembeli. Tulis Order ID dalam nota PayPal.</p>' : '<p class="text-xs text-amber-300">PayPal belum diset — WS admin 017.</p>'}
+${paypalMe ? '<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(paypalMe) + '" class="mx-auto rounded-2xl border border-white/10" width="220" height="220" alt="PayPal QR"><a id="ppBtn" href="#" class="inline-block w-full bg-sky-500 hover:bg-sky-400 font-bold py-3 rounded-xl text-sm mt-3">Bayar dengan PayPal →</a><p class="text-[11px] text-slate-500 mt-2">Fee PayPal ~4-5% ditanggung pembeli. Tulis Order ID dalam nota PayPal.</p>' : '<p class="text-xs text-amber-300">PayPal belum diset — WS admin 017.</p>'}
 </div>
 <p class="text-[11px] text-slate-500">Lepas bayar hantar <b>resit / tx signature</b> ke WhatsApp 017. Order diproses selepas bayaran disahkan.</p>
 <a href="https://wa.me/60173735431" class="block text-center w-full bg-emerald-500 hover:bg-emerald-400 font-bold py-3 rounded-xl text-sm">Sahkan via WhatsApp 017</a>

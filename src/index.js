@@ -256,8 +256,8 @@ async function askWorkersAi(env, message, systemPrompt, history = []) {
 }
 
 // Gemini free tier (AI Studio) — pilihan utama, jimat prepaid Claude
-// GEMINI_MODEL boleh set "auto" atau nama spesifik; kalau 404, auto-pilih flash terkini.
-const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash';
+// GEMINI_MODEL boleh set "auto" atau nama spesifik. Cuba ikut turutan, skip yang 404/429.
+const GEMINI_DEFAULT_CANDIDATES = ['gemini-2.5-flash', 'gemini-2.0-flash'];
 let geminiResolvedModel = null;
 
 async function geminiPickLatest(apiKey) {
@@ -269,7 +269,7 @@ async function geminiPickLatest(apiKey) {
     const data = await res.json().catch(() => null);
     const names = (data?.models || [])
       .map((m) => String(m?.name || '').replace(/^models\//, ''))
-      .filter((n) => /flash/i.test(n) && !/exp|preview|thinking|image|audio|tts/i.test(n));
+      .filter((n) => /^(gemini-)?[0-9]+\.[0-9]+-flash/i.test(n) && !/exp|preview|thinking|image|audio|tts|omni/i.test(n));
     names.sort().reverse();
     return names[0] || null;
   } catch (e) {
@@ -304,11 +304,12 @@ function workersText(ai) {
 async function askGemini(env, message, systemPrompt, history = []) {
   const apiKey = env?.GEMINI_API_KEY;
   if (!apiKey) return null;
-  let model = env?.GEMINI_MODEL || geminiResolvedModel || GEMINI_DEFAULT_MODEL;
-  if (model === 'auto') {
-    model = geminiResolvedModel || (await geminiPickLatest(apiKey)) || GEMINI_DEFAULT_MODEL;
-    geminiResolvedModel = model;
-  }
+  let model = env?.GEMINI_MODEL || geminiResolvedModel || 'auto';
+  const candidates = [];
+  if (model !== 'auto') candidates.push(model);
+  candidates.push(...GEMINI_DEFAULT_CANDIDATES);
+  const latest = await geminiPickLatest(apiKey);
+  if (latest && !candidates.includes(latest)) candidates.push(latest);
   const contents = [
     ...(history || []).map((h) => ({
       role: h.role === 'assistant' ? 'model' : 'user',
@@ -332,26 +333,25 @@ async function askGemini(env, message, systemPrompt, history = []) {
     return res;
   };
   try {
-    let res = await geminiCall(model);
-    if (res.status === 404) {
-      // Model lapuk/renamed — pilih flash terkini dan cuba sekali lagi
-      const latest = await geminiPickLatest(apiKey);
-      if (latest && latest !== model) {
-        console.warn('Gemini model ' + model + ' tiada, tukar ke ' + latest);
-        geminiResolvedModel = latest;
-        res = await geminiCall(latest);
+    for (const m of candidates) {
+      let res = await geminiCall(m);
+      if ((res.status === 404 || res.status === 429 || res.status === 400) && m !== candidates[candidates.length - 1]) {
+        console.warn('Gemini model ' + m + ' HTTP ' + res.status + ', cuba seterusnya');
+        continue;
       }
+      if (!res.ok) {
+        console.warn('Gemini HTTP ' + res.status);
+        return null;
+      }
+      geminiResolvedModel = m;
+      const data = await res.json().catch(() => null);
+      const text = (data?.candidates?.[0]?.content?.parts || [])
+        .map((p) => p?.text || '')
+        .join('')
+        .trim();
+      return text || null;
     }
-    if (!res.ok) {
-      console.warn('Gemini HTTP ' + res.status);
-      return null;
-    }
-    const data = await res.json().catch(() => null);
-    const text = (data?.candidates?.[0]?.content?.parts || [])
-      .map((p) => p?.text || '')
-      .join('')
-      .trim();
-    return text || null;
+    return null;
   } catch (err) {
     console.warn('Gemini request gagal:', err?.message || err);
     return null;

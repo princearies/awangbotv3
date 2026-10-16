@@ -904,10 +904,12 @@ app.get('/api/order', async (c) => {
   } catch (e) { return c.json({ ok: false, error: 'DB ralat' }, 500); }
 });
 
-// Halaman bayaran: pilih SOL/USDC, scan QR dengan Phantom
+// Halaman bayaran: DuitNow (MY) / SOL / USDC / PayPal (global)
 app.get('/pay', async (c) => {
   const orderId = String(c.req.query('order') || '').slice(0, 12);
   const wallet = salesWallet(c.env);
+  const duitnowQR = String(c.env?.DUITNOW_QR || '');
+  const paypalMe = String(c.env?.PAYPAL_ME || '');
   return c.html(`<!DOCTYPE html>
 <html lang="ms"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -919,40 +921,62 @@ app.get('/pay', async (c) => {
 <h1 class="font-bold text-lg">MyKira Niaga — Bayaran</h1>
 <p id="orderLine" class="text-xs text-slate-400">${orderId ? 'Order #' + escapeHtml(orderId) : 'Isi butiran order di bawah'}</p></div>
 <label class="block text-xs text-slate-400">Order ID (kalau ada)<input id="order" value="${escapeHtml(orderId)}" class="mt-1 w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-sm" placeholder="cth: 5"></label>
+<div class="grid grid-cols-4 gap-2">
+<button data-pay="duitnow" class="paytab py-2.5 rounded-xl font-bold text-sm bg-pink-600">DuitNow</button>
+<button data-pay="SOL" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">◎ SOL</button>
+<button data-pay="USDC" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">$ USDC</button>
+<button data-pay="paypal" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">PayPal</button></div>
+<div id="panel-duitnow">
+<div class="text-center">${duitnowQR ? '<img id="dnqr" class="mx-auto rounded-2xl border border-white/10" width="220" height="220" alt="DuitNow QR">' : '<p class="text-xs text-amber-300">QR DuitNow belum diset — WS admin 017.</p>'}
+<p class="text-xs text-slate-300 mt-2">AWANG AZAMAN @ AZMAN BIN<br><span class="text-slate-500">Scan dengan mana-mana bank / e-wallet MY, isi jumlah ikut order</span></p></div>
+</div>
+<div id="panel-crypto" class="hidden">
 <label class="block text-xs text-slate-400">Jumlah<input id="amount" type="number" min="0" step="0.01" class="mt-1 w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-sm" placeholder="cth: 25 (RM) / 5 (USD)"></label>
-<div class="grid grid-cols-2 gap-2">
-<button id="btnSOL" class="py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-purple-500 to-green-500">◎ SOL</button>
-<button id="btnUSDC" class="py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">$ USDC</button></div>
-<div class="text-center"><img id="qr" class="mx-auto rounded-2xl border border-white/10" width="220" height="220" alt="Scan untuk bayar">
+<div class="text-center mt-2"><img id="qr" class="mx-auto rounded-2xl border border-white/10" width="220" height="220" alt="Scan untuk bayar">
 <a id="openBtn" href="#" class="inline-block mt-3 text-sm text-sky-300 underline">Buka dalam Phantom →</a></div>
-<div class="text-xs text-slate-400 break-all">Penerima:<br><span id="addr" class="text-slate-200 font-mono">${wallet}</span>
+<div class="text-xs text-slate-400 break-all mt-2">Penerima:<br><span id="addr" class="text-slate-200 font-mono">${wallet}</span>
 <button id="copyBtn" class="ml-2 px-2 py-1 text-[11px] bg-white/10 rounded-lg">Salin</button></div>
-<p class="text-[11px] text-slate-500">1. Pilih SOL/USDC + isi jumlah yang dipersetujui 2. Scan QR dengan Phantom 3. Hantar <b>resit / tx signature</b> ke WhatsApp 017. Order diproses selepas bayaran disahkan.</p>
+</div>
+<div id="panel-paypal" class="hidden text-center">
+${paypalMe ? '<a id="ppBtn" href="#" class="inline-block w-full bg-sky-500 hover:bg-sky-400 font-bold py-3 rounded-xl text-sm">Bayar dengan PayPal →</a><p class="text-[11px] text-slate-500 mt-2">Fee PayPal ~4-5% ditanggung pembeli. Tulis Order ID dalam nota PayPal.</p>' : '<p class="text-xs text-amber-300">PayPal belum diset — WS admin 017.</p>'}
+</div>
+<p class="text-[11px] text-slate-500">Lepas bayar hantar <b>resit / tx signature</b> ke WhatsApp 017. Order diproses selepas bayaran disahkan.</p>
 <a href="https://wa.me/60173735431" class="block text-center w-full bg-emerald-500 hover:bg-emerald-400 font-bold py-3 rounded-xl text-sm">Sahkan via WhatsApp 017</a>
 </div>
 <script>
-var wallet="${wallet}", usdcMint="${USDC_MINT}", token="SOL";
-function buildUrl(){
-  var amt=parseFloat(document.getElementById('amount').value||'0');
-  var ord=document.getElementById('order').value||'';
+var wallet="${wallet}", usdcMint="${USDC_MINT}", token="duitnow";
+var duitnowQR=${JSON.stringify(duitnowQR)}, paypalMe=${JSON.stringify(paypalMe)};
+function solUrl(){
+  var amt=parseFloat((document.getElementById('amount')||{}).value||'0');
+  var ord=(document.getElementById('order')||{}).value||'';
   var memo='MKIRA-'+(ord||'NA');
   var u='solana:'+wallet+'?amount='+amt+'&label='+encodeURIComponent('MyKira Niaga')+'&message='+encodeURIComponent('Order '+memo)+'&memo='+encodeURIComponent(memo);
   if(token==='USDC') u+='&spl-token='+usdcMint;
   return u;
 }
 function refresh(){
-  var u=buildUrl();
-  document.getElementById('qr').src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data='+encodeURIComponent(u);
-  document.getElementById('openBtn').href=u;
-  var o=document.getElementById('order').value;
+  if(token==='duitnow'&&duitnowQR){document.getElementById('dnqr').src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data='+encodeURIComponent(duitnowQR);}
+  if(token==='SOL'||token==='USDC'){var u=solUrl();document.getElementById('qr').src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data='+encodeURIComponent(u);document.getElementById('openBtn').href=u;}
+  if(token==='paypal'&&paypalMe){var amt=parseFloat((document.getElementById('amountPaypal')||{}).value||'0');var base=paypalMe;document.getElementById('ppBtn').href=amt>0?(base+'/'+amt):base;}
+  var o=(document.getElementById('order')||{}).value;
   var line=document.getElementById('orderLine');
-  if(o){fetch('/api/order?id='+encodeURIComponent(o)).then(function(r){return r.json()}).then(function(d){if(d.ok){line.textContent='Order #'+d.id+' — '+d.barang+' x'+d.qty+' ('+d.status+')'}}).catch(function(){})}  
+  if(o){fetch('/api/order?id='+encodeURIComponent(o)).then(function(r){return r.json()}).then(function(d){if(d.ok){line.textContent='Order #'+d.id+' — '+d.barang+' x'+d.qty+' ('+d.status+')'}}).catch(function(){})}
 }
-document.getElementById('btnSOL').onclick=function(){token='SOL';refresh()};
-document.getElementById('btnUSDC').onclick=function(){token='USDC';refresh()};
-document.getElementById('amount').oninput=refresh;document.getElementById('order').oninput=refresh;
-document.getElementById('copyBtn').onclick=function(){navigator.clipboard.writeText(wallet)};
-refresh();
+function showTab(t){
+  token=t;
+  ['duitnow','crypto','paypal'].forEach(function(p){document.getElementById('panel-'+p).classList.add('hidden')});
+  if(t==='duitnow')document.getElementById('panel-duitnow').classList.remove('hidden');
+  else if(t==='paypal')document.getElementById('panel-paypal').classList.remove('hidden');
+  else document.getElementById('panel-crypto').classList.remove('hidden');
+  var btns=document.querySelectorAll('.paytab');
+  btns.forEach(function(b){var on=b.getAttribute('data-pay')===t;b.className='paytab py-2.5 rounded-xl font-bold text-sm '+(on?'bg-pink-600':'bg-white/10 border border-white/10')});
+  refresh();
+}
+document.querySelectorAll('.paytab').forEach(function(b){b.onclick=function(){showTab(b.getAttribute('data-pay'))}});
+var amtEl=document.getElementById('amount');if(amtEl)amtEl.oninput=refresh;
+document.getElementById('order').oninput=refresh;
+var cp=document.getElementById('copyBtn');if(cp)cp.onclick=function(){navigator.clipboard.writeText(wallet)};
+showTab('duitnow');
 </script></body></html>`);
 });
 app.get('/api/dropship-tracking', async (c) => {

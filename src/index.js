@@ -256,7 +256,27 @@ async function askWorkersAi(env, message, systemPrompt, history = []) {
 }
 
 // Gemini free tier (AI Studio) — pilihan utama, jimat prepaid Claude
+// GEMINI_MODEL boleh set "auto" atau nama spesifik; kalau 404, auto-pilih flash terkini.
 const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash';
+let geminiResolvedModel = null;
+
+async function geminiPickLatest(apiKey) {
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+      headers: { 'x-goog-api-key': apiKey },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const names = (data?.models || [])
+      .map((m) => String(m?.name || '').replace(/^models\//, ''))
+      .filter((n) => /flash/i.test(n) && !/exp|preview|thinking|image|audio|tts/i.test(n));
+    names.sort().reverse();
+    return names[0] || null;
+  } catch (e) {
+    console.warn('Gemini list models gagal:', e?.message || e);
+    return null;
+  }
+}
 
 // Workers AI kadang pulang response bukan string (objek/array) — normalkan dulu
 function workersText(ai) {
@@ -274,7 +294,11 @@ function workersText(ai) {
 async function askGemini(env, message, systemPrompt, history = []) {
   const apiKey = env?.GEMINI_API_KEY;
   if (!apiKey) return null;
-  const model = env?.GEMINI_MODEL || GEMINI_DEFAULT_MODEL;
+  let model = env?.GEMINI_MODEL || geminiResolvedModel || GEMINI_DEFAULT_MODEL;
+  if (model === 'auto') {
+    model = geminiResolvedModel || (await geminiPickLatest(apiKey)) || GEMINI_DEFAULT_MODEL;
+    geminiResolvedModel = model;
+  }
   const contents = [
     ...(history || []).map((h) => ({
       role: h.role === 'assistant' ? 'model' : 'user',
@@ -282,9 +306,9 @@ async function askGemini(env, message, systemPrompt, history = []) {
     })),
     { role: 'user', parts: [{ text: String(message).slice(0, 2000) }] },
   ];
-  try {
+  const geminiCall = async (m) => {
     const res = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(m) + ':generateContent',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -295,6 +319,19 @@ async function askGemini(env, message, systemPrompt, history = []) {
         }),
       }
     );
+    return res;
+  };
+  try {
+    let res = await geminiCall(model);
+    if (res.status === 404) {
+      // Model lapuk/renamed — pilih flash terkini dan cuba sekali lagi
+      const latest = await geminiPickLatest(apiKey);
+      if (latest && latest !== model) {
+        console.warn('Gemini model ' + model + ' tiada, tukar ke ' + latest);
+        geminiResolvedModel = latest;
+        res = await geminiCall(latest);
+      }
+    }
     if (!res.ok) {
       console.warn('Gemini HTTP ' + res.status);
       return null;

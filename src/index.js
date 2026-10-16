@@ -436,6 +436,42 @@ async function getLatestTracking(env, phone) {
   return row?.results?.[0] || null;
 }
 
+// ----------------- KATALOG PRODUK (source of truth) -----------------
+async function ensureProductsTable(env) {
+  if (!env?.DB) return;
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT NOT NULL, harga REAL NOT NULL DEFAULT 0, modal REAL NOT NULL DEFAULT 0, supplier TEXT DEFAULT "", gambar TEXT DEFAULT "", penerangan TEXT DEFAULT "", aktif INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
+  ).run();
+}
+
+async function listActiveProducts(env) {
+  try {
+    await ensureProductsTable(env);
+    if (!env?.DB) return [];
+    const r = await env.DB.prepare(
+      'SELECT id, nama, harga, gambar, penerangan FROM products WHERE aktif = 1 ORDER BY id'
+    ).run();
+    return r?.results || [];
+  } catch (e) { console.warn('products load gagal:', e?.message); return []; }
+}
+
+// Padankan nama barang order dengan katalog (fuzzy, dua hala)
+function matchProduct(products, barangText) {
+  const b = String(barangText || '').toLowerCase().trim();
+  if (!b) return null;
+  const words = b.split(/\s+/).filter((w) => w.length > 2);
+  let best = null, bestScore = 0;
+  for (const p of products || []) {
+    const n = String(p.nama || '').toLowerCase().trim();
+    if (!n) continue;
+    if (b.includes(n) || n.includes(b)) return p;
+    let score = 0;
+    for (const w of n.split(/\s+/)) { if (w.length > 2 && b.includes(w)) score += w.length; }
+    if (score > bestScore) { bestScore = score; best = p; }
+  }
+  return bestScore >= 4 ? best : null;
+}
+
 // ----------------- INGATAN PERBUALAN (v2) -----------------
 async function ensureMemoryTable(env) {
   if (!env?.DB) return;
@@ -905,7 +941,7 @@ function salesWallet(env) {
 
 // Butiran order awam (tanpa nama/phone/alamat) untuk halaman bayaran
 app.get('/api/order', async (c) => {
-  const id = Number(c.req.query('id') || 0);
+  const id = Number(c.req.query('order') || 0);
   if (!id) return c.json({ ok: false, error: 'id diperlukan' }, 400);
   try {
     await ensureDropshipTables(c.env);
@@ -914,8 +950,20 @@ app.get('/api/order', async (c) => {
     ).bind(id).run();
     const hit = row?.results?.[0];
     if (!hit) return c.json({ ok: false, error: 'tiada order' }, 404);
-    return c.json({ ok: true, ...hit });
+    // Padankan harga dari katalog
+    let harga = null, product_id = null;
+    try {
+      const mp = matchProduct(await listActiveProducts(c.env), hit.barang);
+      if (mp) { harga = Number(mp.harga) * Number(hit.qty || 1); product_id = mp.id; }
+    } catch (e) { /* abaikan */ }
+    return c.json({ ok: true, ...hit, harga, product_id });
   } catch (e) { return c.json({ ok: false, error: 'DB ralat' }, 500); }
+});
+
+// Katalog awam (tanpa modal/supplier)
+app.get('/api/products', async (c) => {
+  const list = await listActiveProducts(c.env);
+  return c.json({ ok: true, products: list });
 });
 
 // Halaman bayaran: DuitNow (MY) / SOL / USDC / PayPal (global)
@@ -975,7 +1023,7 @@ function refresh(){
   if(token==='paypal'&&paypalMe){var amt=parseFloat((document.getElementById('amountPaypal')||{}).value||'0');var base=paypalMe;document.getElementById('ppBtn').href=amt>0?(base+'/'+amt):base;}
   var o=(document.getElementById('order')||{}).value;
   var line=document.getElementById('orderLine');
-  if(o){fetch('/api/order?id='+encodeURIComponent(o)).then(function(r){return r.json()}).then(function(d){if(d.ok){line.textContent='Order #'+d.id+' — '+d.barang+' x'+d.qty+' ('+d.status+')'}}).catch(function(){})}
+  if(o){fetch('/api/order?id='+encodeURIComponent(o)).then(function(r){return r.json()}).then(function(d){if(d.ok){line.textContent='Order #'+d.id+' — '+d.barang+' x'+d.qty+' ('+d.status+')';if(d.harga&&!document.getElementById('amount').value){document.getElementById('amount').value=d.harga;line.textContent+=' — RM'+d.harga;refresh()}}}).catch(function(){})}
 }
 function showTab(t){
   token=t;
@@ -1042,11 +1090,16 @@ if(document.getElementById('order').value)lookup();
 // Content factory: jana content calendar TikTok untuk hero products
 app.post('/api/content-plan', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const products = (Array.isArray(body.products) ? body.products : [])
+  let products = (Array.isArray(body.products) ? body.products : [])
     .map((s) => String(s).slice(0, 80))
     .filter(Boolean)
     .slice(0, 5);
-  if (!products.length) return c.json({ ok: false, error: 'products diperlukan, cth ["kopi sabah","kuali viral"]' }, 400);
+  // catalog:true -> baca dari D1 (source of truth)
+  if (!products.length && body.catalog) {
+    const cat = await listActiveProducts(c.env);
+    products = cat.map((p) => `${p.nama} (RM${p.harga})`).slice(0, 5);
+  }
+  if (!products.length) return c.json({ ok: false, error: 'products diperlukan, cth ["kopi sabah","kuali viral"] atau {"catalog":true}' }, 400);
   const lang = body.lang === 'en' ? 'en' : body.lang === 'both' ? 'both' : 'ms';
   const days = Math.max(1, Math.min(14, Number(body.days) || 7));
   const sysPrompt = `You are a TikTok content strategist for a dropship store (MyKira Niaga, Malaysia + international audience). Output a content calendar as JSON ONLY, no other text. Format: [{"day":1,"product":"...","hook":"first-3-seconds scroll-stopper line","script":"15-30 second spoken demo script","caption":"short caption with WhatsApp order CTA","hashtags":["#niche","#broad"],"postTime":"8pm MYT","cta":"...","discountCode":"TIK1"}]. Rules: one video per day, rotate products; hooks must stop scrollers; scripts simple show-and-tell demo; captions short with order CTA; hashtags mix niche + broad; discountCode unique TIK1..TIKn for tracking which video converts. Language: ${lang === 'both' ? 'alternate Malay and English days, mark with "lang" field per item' : lang === 'en' ? 'English' : 'Bahasa Melayu casual Sabah style'}. Days: ${days}.`;
@@ -1237,7 +1290,48 @@ function fmtOrder(o) {
 }
 
 async function handleOwnerCommand(env, text) {
-  const m = String(text || '').trim().match(/^(paid|pos|sampai|status|refund)\s+(\d+)\s*([\s\S]*)$/i);
+  const t = String(text || '').trim();
+  // --- Katalog produk ---
+  const pm = t.match(/^(tambah|senarai|tutup|buka|harga)\b\s*([\s\S]*)$/i);
+  if (pm) {
+    const pcmd = pm[1].toLowerCase();
+    const parg = (pm[2] || '').trim();
+    await ensureProductsTable(env);
+    if (!env?.DB) return 'DB tidak sedia.';
+    if (pcmd === 'senarai') {
+      const r = await env.DB.prepare('SELECT id, nama, harga, aktif FROM products ORDER BY id').run();
+      const rows = r?.results || [];
+      if (!rows.length) return 'Katalog kosong. Tambah: TAMBAH nama | harga | modal';
+      return '📦 KATALOG:\n' + rows.map((p) => `#${p.id} ${p.nama} — RM${p.harga}${p.aktif ? '' : ' (TUTUP)'}`).join('\n');
+    }
+    if (pcmd === 'tambah') {
+      const parts = parg.split('|').map((s) => s.trim()).filter(Boolean);
+      if (parts.length < 2) return 'Format: TAMBAH nama | harga | modal(opsyenal)\nCth: TAMBAH Ubat gigi ungu | 19.90 | 12';
+      const nama = parts[0].slice(0, 100);
+      const harga = Math.max(0, Number(parts[1]) || 0);
+      const modal = parts[2] ? Math.max(0, Number(parts[2]) || 0) : 0;
+      const r = await env.DB.prepare(
+        'INSERT INTO products (nama, harga, modal) VALUES (?, ?, ?)'
+      ).bind(nama, harga, modal).run().catch(() => null);
+      const id = r?.meta?.last_row_id;
+      if (!id) return 'Gagal simpan.';
+      return `✅ Produk #${id} masuk katalog:\n${nama} — RM${harga}${modal ? ` (modal RM${modal})` : ''}`;
+    }
+    if (pcmd === 'tutup' || pcmd === 'buka') {
+      const id = Number(parg);
+      if (!id) return 'Format: ' + (pcmd === 'tutup' ? 'TUTUP' : 'BUKA') + ' <id>\nCth: TUTUP 2';
+      await env.DB.prepare('UPDATE products SET aktif = ? WHERE id = ?').bind(pcmd === 'buka' ? 1 : 0, id).run();
+      return `✅ Produk #${id} ${pcmd === 'buka' ? 'dibuka' : 'ditutup'}.`;
+    }
+    if (pcmd === 'harga') {
+      const hp = parg.match(/^(\d+)\s+([\d.]+)$/);
+      if (!hp) return 'Format: HARGA <id> <nilai>\nCth: HARGA 2 24.90';
+      await env.DB.prepare('UPDATE products SET harga = ? WHERE id = ?').bind(Number(hp[2]), Number(hp[1])).run();
+      return `✅ Harga produk #${hp[1]} -> RM${hp[2]}.`;
+    }
+    return null;
+  }
+  const m = t.match(/^(paid|pos|sampai|status|refund)\s+(\d+)\s*([\s\S]*)$/i);
   if (!m) return null;
   const cmd = m[1].toLowerCase();
   const id = Number(m[2]);

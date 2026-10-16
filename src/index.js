@@ -278,15 +278,25 @@ async function geminiPickLatest(apiKey) {
   }
 }
 
-// Workers AI kadang pulang response bukan string (objek/array) — normalkan dulu
+// Workers AI kadang pulang response bukan string (objek/array) — normalkan dulu.
+// Format lama: {response:"..."}. Format baru OpenAI-style: {choices:[{message:{content:"..."}}]}.
 function workersText(ai) {
   const r = ai?.response;
-  if (typeof r === 'string') return r.trim();
+  if (typeof r === 'string' && r.trim()) return r.trim();
+  const ch = ai?.choices?.[0];
+  const c = ch?.message?.content ?? ch?.text ?? ch?.delta?.content;
+  if (typeof c === 'string' && c.trim()) return c.trim();
+  if (Array.isArray(c)) {
+    const t = c.map((p) => (typeof p === 'string' ? p : (p?.text || ''))).join('').trim();
+    if (t) return t;
+  }
   if (Array.isArray(r)) {
-    return r.map((p) => (typeof p === 'string' ? p : (p?.text || p?.content || ''))).join('').trim();
+    const t = r.map((p) => (typeof p === 'string' ? p : (p?.text || p?.content || ''))).join('').trim();
+    if (t) return t;
   }
   if (r && typeof r === 'object') {
-    return String(r.text || r.content || r.answer || '').trim();
+    const t = String(r.text || r.content || r.answer || '').trim();
+    if (t) return t;
   }
   return '';
 }
@@ -862,33 +872,18 @@ app.get('/api/dropship-tracking', async (c) => {
   return c.json({ ok: true, ...hit });
 });
 
-// DEBUG sementara: lihat bentuk mentah response setiap model Workers AI
+// DEBUG sementara: probe bentuk response + uji pengekstrak order
 app.post('/api/debug-extract', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const pick = String(body.model || '');
-  const models = pick
-    ? [pick]
-    : (c.env?.CF_MODEL_CHAIN || CF_DEFAULT_CHAIN).split(',').map((s) => s.trim()).filter(Boolean);
-  const out = [];
-  for (const m of models) {
-    try {
-      const ai = await c.env.AI.run(m, {
-        messages: [
-          { role: 'system', content: 'Say OK' },
-          { role: 'user', content: 'hi' },
-        ],
-      });
-      out.push({
-        model: m,
-        type: typeof ai?.response,
-        keys: ai && typeof ai === 'object' ? Object.keys(ai).slice(0, 10) : null,
-        preview: JSON.stringify(ai?.response ?? ai).slice(0, 300),
-      });
-    } catch (e) {
-      out.push({ model: m, error: String(e?.message || e).slice(0, 200) });
-    }
-  }
-  return c.json({ out });
+  const history = Array.isArray(body.history) ? body.history : [];
+  const convo = history.map((m) => (m.role === 'assistant' ? 'MyKira: ' : 'Customer: ') + (m.content || '')).join('\n').slice(-3000);
+  const raw = await askWorkersAi(c.env, 'Perbualan:\n' + convo, EXTRACT_PROMPT);
+  let parsed = null;
+  try {
+    const m = String(raw || '').match(/\{[\s\S]*\}/);
+    if (m) parsed = JSON.parse(m[0]);
+  } catch (e) { parsed = { parseError: String(e?.message || e).slice(0, 100) }; }
+  return c.json({ raw: String(raw || '').slice(0, 500), parsed });
 });
 
 app.post('/api/pbt-chat', async (c) => {

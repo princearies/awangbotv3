@@ -845,9 +845,13 @@ app.post('/api/dropship-chat', async (c) => {
     } catch (e) { console.warn('tracking lookup gagal:', e?.message); }
   }
   const lang = detectLang(text, history);
-  let reply = await askAi(c.env, text, lang === 'ms' ? PROMPT_DROPSHIP : PROMPT_DROPSHIP_EN, history);
-  // Auto-save order: jalan bila ada no telefon / SETUJU / CONFIRM, dan belum pernah simpan
-  if (useMemory) {
+  // Tanya pasal BOT (pakej/setup/sewa) -> jawab jualan bot, bukan dropship (kecuali jelas pasal order/tracking/bayar)
+  const isBotSales = /(bot|pakej|package|awangbot|setup bot|sewa bot|buat bot|nak bot|beli bot|bot whatsapp|bot telegram)/i.test(text)
+    && !/(order|tracking|trek|sampai bila|dah pos|refund|return|resit|transfer|bayar|payment|confirm|setuju)/i.test(text);
+  const salesPrompt = isBotSales ? PROMPT_017 : (lang === 'ms' ? PROMPT_DROPSHIP : PROMPT_DROPSHIP_EN);
+  let reply = await askAi(c.env, text, salesPrompt, history);
+  // Auto-save order: jalan bila ada no telefon / SETUJU / CONFIRM, dan belum pernah simpan (bukan chat jualan bot)
+  if (useMemory && !isBotSales) {
     const alreadySaved = history.some((m) => m.role === 'assistant' && /Order #\d+ noted/.test(m.content || ''));
     const looksComplete = /01\d{8,9}/.test(text)
       || /^(setuju|sah|jadi|confirm|confirmed|ok jadi|baik jadi)/i.test(text.trim())

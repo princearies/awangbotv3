@@ -872,20 +872,6 @@ app.get('/api/dropship-tracking', async (c) => {
   return c.json({ ok: true, ...hit });
 });
 
-// DEBUG sementara: probe bentuk response + uji pengekstrak order
-app.post('/api/debug-extract', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const history = Array.isArray(body.history) ? body.history : [];
-  const convo = history.map((m) => (m.role === 'assistant' ? 'MyKira: ' : 'Customer: ') + (m.content || '')).join('\n').slice(-3000);
-  const raw = await askWorkersAi(c.env, 'Perbualan:\n' + convo, EXTRACT_PROMPT);
-  let parsed = null;
-  try {
-    const m = String(raw || '').match(/\{[\s\S]*\}/);
-    if (m) parsed = JSON.parse(m[0]);
-  } catch (e) { parsed = { parseError: String(e?.message || e).slice(0, 100) }; }
-  return c.json({ raw: String(raw || '').slice(0, 500), parsed });
-});
-
 app.post('/api/pbt-chat', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const reply = await askAi(c.env, String(body.message || '').trim(), PBT_PROMPT);

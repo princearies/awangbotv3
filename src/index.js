@@ -244,7 +244,7 @@ async function askWorkersAi(env, message, systemPrompt, history = []) {
           { role: 'user', content: message }
         ]
       });
-      const out = (ai?.response || '').trim();
+      const out = workersText(ai);
       if (out) return out;
       console.warn('CF model ' + model + ' kosong, Cuba yang seterusnya.');
     } catch (err) {
@@ -257,6 +257,19 @@ async function askWorkersAi(env, message, systemPrompt, history = []) {
 
 // Gemini free tier (AI Studio) — pilihan utama, jimat prepaid Claude
 const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash';
+
+// Workers AI kadang pulang response bukan string (objek/array) — normalkan dulu
+function workersText(ai) {
+  const r = ai?.response;
+  if (typeof r === 'string') return r.trim();
+  if (Array.isArray(r)) {
+    return r.map((p) => (typeof p === 'string' ? p : (p?.text || p?.content || ''))).join('').trim();
+  }
+  if (r && typeof r === 'object') {
+    return String(r.text || r.content || r.answer || '').trim();
+  }
+  return '';
+}
 
 async function askGemini(env, message, systemPrompt, history = []) {
   const apiKey = env?.GEMINI_API_KEY;

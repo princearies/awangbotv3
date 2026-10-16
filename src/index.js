@@ -11,6 +11,7 @@ import { BURGER_PROMPT } from './prompts/burger.js';
 import { NASIKUNING_PROMPT } from './prompts/nasikuning.js';
 import { PROMPT_017 } from './prompts/017.js';
 import { PROMPT_DROPSHIP } from './prompts/dropship.js';
+import { PROMPT_DROPSHIP_EN } from './prompts/dropship-en.js';
 
 // Import Semua Konfigurasi Tab
 import { CHAT_TAB } from './tabs/chat.js';
@@ -64,8 +65,9 @@ app.post('/webhook-017', async (c) => {
     // 1b. Routing: dropship (order/tracking/refund) vs jualan pakej bot
     const t = text.toLowerCase();
     const isDropship = /(order|beli|belanja|nak beli|mau beli|barang|tracking|trek|parcel|pos laju|j&t|ninja|refund|return|tukar|rosak|salah barang|lambat|sampai bila|bayar|transfer|resit|qr|katalog|cod|stok|ready stock)/.test(t);
-    const systemPrompt = isDropship ? PROMPT_DROPSHIP : PROMPT_017;
     const history017 = isDropship ? await getHistory(c.env, from) : [];
+    const lang017 = isDropship ? detectLang(text, history017) : 'ms';
+    const systemPrompt = !isDropship ? PROMPT_017 : (lang017 === 'ms' ? PROMPT_DROPSHIP : PROMPT_DROPSHIP_EN);
 
     // 2. Balasan AI (Claude -> Cloudflare Workers AI)
     const replyText = await askAi(c.env, text, systemPrompt, history017);
@@ -468,7 +470,18 @@ async function getHistory(env, phone, limit = 10) {
   } catch (e) { console.warn('memory load gagal:', e?.message); return []; }
 }
 
-// Pengekstrak order: jalan bila ada no telefon / SETUJU, guna Workers AI free saja
+// Pengekstrak order: jalan bila ada no telefon / SETUJU / CONFIRM, guna Workers AI free saja
+
+// Bahasa: Melayu jika ada penanda Melayu dalam mesej semasa atau sejarah user; selain itu English
+const MS_MARKERS = /(nak|tak|tidak|tiada|barang|berapa|bila|mana|siapa|saya|kami|kita|dia|mereka|punya|dengan|untuk|dari|pada|yang|dan|atau|tapi|sebab|kalau|jika|boleh|sudah|belum|pernah|sangat|juga|lagi|sahaja|banyak|sikit|murah|mahal|hantar|bayar|resit|telefon|nombor|alamat|nama|diskaun|promosi|bah\b|ngam|jua|kitani|bisai|mahal|murah)/i;
+function detectLang(text, history = []) {
+  if (MS_MARKERS.test(text)) return 'ms';
+  for (const m of history) {
+    if (m.role === 'user' && MS_MARKERS.test(m.content || '')) return 'ms';
+  }
+  return 'en';
+}
+
 const EXTRACT_PROMPT = `Anda pengekstrak order untuk kedai online. Baca perbualan dan jawab JSON SAHAJA, tiada teks lain.
 Format: {"order":true/false,"nama":"","phone":"","barang":"","qty":1,"alamat":""}
 order=true HANYA jika nama, no telefon, nama barang DAN alamat semuanya jelas dalam perbualan. Jika mana-mana tiada atau tidak jelas, jawab {"order":false}. qty nombor 1-99.`;
@@ -820,20 +833,24 @@ app.post('/api/dropship-chat', async (c) => {
   const useMemory = from && from !== 'web';
   const history = useMemory ? await getHistory(c.env, from) : [];
   // Auto tracking: kalau tanya tracking, jawab dari DB dulu tanpa AI
-  if (/barang kat mana|tracking|sampai bila|dah pos|trek/i.test(text) && useMemory) {
+  if (/barang kat mana|tracking|sampai bila|dah pos|trek|where.*parcel|where.*order|track.*order/i.test(text) && useMemory) {
     try {
       const phoneDigits = from.replace(/\D/g, '').slice(-10);
       const hit = await getLatestTracking(c.env, from).catch(() => null)
         || await getLatestTracking(c.env, phoneDigits).catch(() => null);
-      if (hit?.tracking) return c.json({ reply: `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking: ${hit.tracking} boss.` });
-      if (hit) return c.json({ reply: `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking belum keluar, aku update esok boss.` });
+      const en = detectLang(text, history) === 'en';
+      if (hit?.tracking) return c.json({ reply: en ? `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking: ${hit.tracking}` : `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking: ${hit.tracking} boss.` });
+      if (hit) return c.json({ reply: en ? `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking not out yet, will update tomorrow.` : `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking belum keluar, aku update esok boss.` });
     } catch (e) { console.warn('tracking lookup gagal:', e?.message); }
   }
-  let reply = await askAi(c.env, text, PROMPT_DROPSHIP, history);
-  // Auto-save order: jalan bila ada no telefon / SETUJU, dan belum pernah simpan
+  const lang = detectLang(text, history);
+  let reply = await askAi(c.env, text, lang === 'ms' ? PROMPT_DROPSHIP : PROMPT_DROPSHIP_EN, history);
+  // Auto-save order: jalan bila ada no telefon / SETUJU / CONFIRM, dan belum pernah simpan
   if (useMemory) {
     const alreadySaved = history.some((m) => m.role === 'assistant' && /Order #\d+ noted/.test(m.content || ''));
-    const looksComplete = /01\d{8,9}/.test(text) || /^(setuju|sah|jadi|confirm|ok jadi|baik jadi)/i.test(text.trim());
+    const looksComplete = /01\d{8,9}/.test(text)
+      || /^(setuju|sah|jadi|confirm|confirmed|ok jadi|baik jadi)/i.test(text.trim())
+      || /^(yes|yeah|yup|ya)[\s!.]*$/i.test(text.trim());
     if (!alreadySaved && looksComplete) {
       const ord = await tryExtractOrder(c.env, [...history, { role: 'user', content: text }]);
       if (ord) {

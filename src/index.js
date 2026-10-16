@@ -857,8 +857,9 @@ app.post('/api/dropship-chat', async (c) => {
       if (ord) {
         const id = await saveDropshipOrder(c.env, ord).catch(() => null);
         const payUrl = 'https://awangbotv3.mykira.workers.dev/pay?order=' + id;
-        if (id && lang === 'en') reply += `\n\n✅ Order #${id} noted — ${ord.barang} x${ord.qty}. Pay here: ${payUrl} then send the receipt here.`;
-        else if (id) reply += `\n\n✅ Order #${id} noted boss — ${ord.barang} x${ord.qty}. Bayar sini: ${payUrl} lepas tu bagi resit kat sini ya.`;
+        const trackUrl = 'https://awangbotv3.mykira.workers.dev/track?id=' + id;
+        if (id && lang === 'en') reply += `\n\n✅ Order #${id} noted — ${ord.barang} x${ord.qty}. Pay here: ${payUrl} then send the receipt here.\n📦 Track anytime: ${trackUrl}`;
+        else if (id) reply += `\n\n✅ Order #${id} noted boss — ${ord.barang} x${ord.qty}. Bayar sini: ${payUrl} lepas tu bagi resit kat sini ya.\n📦 Semak status sendiri: ${trackUrl}`;
       }
     }
     await saveMsg(c.env, from, 'user', text);

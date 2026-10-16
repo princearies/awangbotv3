@@ -860,6 +860,11 @@ app.post('/api/dropship-chat', async (c) => {
         const trackUrl = 'https://awangbotv3.mykira.workers.dev/track?id=' + id;
         if (id && lang === 'en') reply += `\n\n✅ Order #${id} noted — ${ord.barang} x${ord.qty}. Pay here: ${payUrl} then send the receipt here.\n📦 Track anytime: ${trackUrl}`;
         else if (id) reply += `\n\n✅ Order #${id} noted boss — ${ord.barang} x${ord.qty}. Bayar sini: ${payUrl} lepas tu bagi resit kat sini ya.\n📦 Semak status sendiri: ${trackUrl}`;
+        // Bisik owner (muka public bot tak berubah)
+        if (id && c.env.BOT_TOKEN && c.env.ADMIN_ID) {
+          await sendTelegramMessage(c.env.BOT_TOKEN, c.env.ADMIN_ID,
+            `🔔 <b>Order baru #${id} (MyKira)</b>\n📦 ${escapeHtml(ord.barang)} x${ord.qty}\n👤 ${escapeHtml(ord.nama)} / ${escapeHtml(ord.phone)}\n📍 ${escapeHtml(ord.alamat)}`);
+        }
       }
     }
     await saveMsg(c.env, from, 'user', text);
@@ -881,6 +886,10 @@ app.post('/api/dropship-order', async (c) => {
   }).catch(() => null);
   if (!id) return c.json({ ok: false, error: 'DB tidak sedia' }, 500);
   await saveLead(c.env, `DropshipOrder #${id}`, `${body.nama} / ${body.phone} / ${body.barang} x${body.qty}`);
+  if (c.env.BOT_TOKEN && c.env.ADMIN_ID) {
+    await sendTelegramMessage(c.env.BOT_TOKEN, c.env.ADMIN_ID,
+      `🔔 <b>Order baru #${id} (MyKira, borang)</b>\n📦 ${escapeHtml(String(body.barang || ''))} x${body.qty}\n👤 ${escapeHtml(String(body.nama || ''))} / ${escapeHtml(String(body.phone || ''))}`);
+  }
   return c.json({ ok: true, orderId: id });
 });
 

@@ -988,6 +988,43 @@ app.get('/api/dropship-tracking', async (c) => {
   return c.json({ ok: true, ...hit });
 });
 
+// Halaman semak status order (public, tanpa data peribadi)
+app.get('/track', async (c) => {
+  const orderId = String(c.req.query('id') || '').slice(0, 12);
+  return c.html(`<!DOCTYPE html>
+<html lang="ms"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Semak Order — MyKira Niaga</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+<div class="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl p-6 space-y-4">
+<div class="text-center"><div class="text-2xl">📦</div>
+<h1 class="font-bold text-lg">Semak Status Order</h1>
+<p class="text-xs text-slate-400">MyKira Niaga — masuk Order ID dari bot</p></div>
+<div class="flex gap-2">
+<input id="order" value="${escapeHtml(orderId)}" inputmode="numeric" class="flex-1 min-w-0 bg-slate-800 border border-white/10 rounded-xl px-4 py-2.5 text-sm" placeholder="cth: 5">
+<button id="go" class="shrink-0 px-5 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-cyan-500">Check</button></div>
+<div id="result" class="hidden rounded-2xl border border-white/10 bg-slate-800/60 p-4 text-sm space-y-1"></div>
+<p class="text-[11px] text-slate-500">Tak jumpa? Order ID ada dalam mesej bot lepas SETUJU/CONFIRM. Tanya admin: <a class="text-sky-300 underline" href="https://wa.me/60173735431">WS 017</a></p>
+</div>
+<script>
+function lookup(){
+  var id=(document.getElementById('order').value||'').trim();
+  var box=document.getElementById('result');
+  if(!id){box.classList.remove('hidden');box.innerHTML='Masuk Order ID dulu boss.';return}
+  fetch('/api/order?id='+encodeURIComponent(id)).then(function(r){return r.json()}).then(function(d){
+    box.classList.remove('hidden');
+    if(!d.ok){box.innerHTML='Order #'+id+' tak jumpa. Check nombor betul ke.';return}
+    var step={'baru':1,'order_supplier':2,'pos':3,'sampai':4,'refund':0}[d.status]||1;
+    var bar='●'.repeat(step)+'○'.repeat(Math.max(0,4-step));
+    box.innerHTML='<div><b>Order #'+d.id+' — '+d.barang+' x'+d.qty+'</b></div><div>Status: <b>'+String(d.status).replace(/_/g,' ')+'</b></div><div style="letter-spacing:4px;color:#fcd34d">'+bar+'</div><div style="font-size:11px;color:#94a3b8">baru → order supplier → pos → sampai</div>';
+  }).catch(function(){box.classList.remove('hidden');box.innerHTML='Line slow, cuba lagi.'});
+}
+document.getElementById('go').onclick=lookup;
+if(document.getElementById('order').value)lookup();
+</script></body></html>`);
+});
+
 // Content factory: jana content calendar TikTok untuk hero products
 app.post('/api/content-plan', async (c) => {
   const body = await c.req.json().catch(() => ({}));

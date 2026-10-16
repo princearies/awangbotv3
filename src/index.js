@@ -941,7 +941,7 @@ function salesWallet(env) {
 
 // Butiran order awam (tanpa nama/phone/alamat) untuk halaman bayaran
 app.get('/api/order', async (c) => {
-  const id = Number(c.req.query('order') || 0);
+  const id = Number(c.req.query('order') || c.req.query('id') || 0);
   if (!id) return c.json({ ok: false, error: 'id diperlukan' }, 400);
   try {
     await ensureDropshipTables(c.env);

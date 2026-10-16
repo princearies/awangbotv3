@@ -10,6 +10,7 @@ import { KLINIK_PROMPT } from './prompts/klinik.js';
 import { BURGER_PROMPT } from './prompts/burger.js';
 import { NASIKUNING_PROMPT } from './prompts/nasikuning.js';
 import { PROMPT_017 } from './prompts/017.js';
+import { PROMPT_DROPSHIP } from './prompts/dropship.js';
 
 // Import Semua Konfigurasi Tab
 import { CHAT_TAB } from './tabs/chat.js';
@@ -60,8 +61,13 @@ app.post('/webhook-017', async (c) => {
     // 1. Simpan lead ke D1
     await saveLead(c.env, `017-Jualan (${name} / ${from})`, text);
 
+    // 1b. Routing: dropship (order/tracking/refund) vs jualan pakej bot
+    const t = text.toLowerCase();
+    const isDropship = /(order|beli|belanja|nak beli|mau beli|barang|tracking|trek|parcel|pos laju|j&t|ninja|refund|return|tukar|rosak|salah barang|lambat|sampai bila|bayar|transfer|resit|qr|katalog|cod|stok|ready stock)/.test(t);
+    const systemPrompt = isDropship ? PROMPT_DROPSHIP : PROMPT_017;
+
     // 2. Balasan AI (Claude -> Cloudflare Workers AI)
-    const replyText = await askAi(c.env, text, PROMPT_017);
+    const replyText = await askAi(c.env, text, systemPrompt);
 
     // 3. Hantar balik melalui WhatsApp Cloud API
     const token = c.env?.WHATSAPP_TOKEN_017;
@@ -268,6 +274,33 @@ async function saveLead(env, nama, notes) {
   } catch (err) {
     console.warn('DB insert failed:', err);
   }
+}
+
+// ----------------- DROPSHIP MVP (017 bisnes) -----------------
+// Table: baru -> order_supplier -> pos -> sampai / refund
+async function ensureDropshipTables(env) {
+  if (!env?.DB) return;
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS dropship_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, phone TEXT, barang TEXT, qty INTEGER DEFAULT 1, alamat TEXT, status TEXT DEFAULT "baru", tracking TEXT DEFAULT "", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
+  ).run();
+}
+
+async function saveDropshipOrder(env, o) {
+  await ensureDropshipTables(env);
+  if (!env?.DB) return null;
+  const r = await env.DB.prepare(
+    'INSERT INTO dropship_orders (nama, phone, barang, qty, alamat, status) VALUES (?, ?, ?, ?, ?, "baru")'
+  ).bind(o.nama || '-', o.phone || '-', o.barang || '-', o.qty || 1, o.alamat || '-').run();
+  return r?.meta?.last_row_id || null;
+}
+
+async function getLatestTracking(env, phone) {
+  await ensureDropshipTables(env);
+  if (!env?.DB) return null;
+  const row = await env.DB.prepare(
+    'SELECT id, barang, status, tracking FROM dropship_orders WHERE phone = ? ORDER BY id DESC LIMIT 1'
+  ).bind(phone).run();
+  return row?.results?.[0] || null;
 }
 
 // ----------------- WEB PORTAL UI -----------------
@@ -587,6 +620,51 @@ app.post('/api/chat', async (c) => {
   const reply = await askAi(c.env, String(body.message || '').trim(), AWANGBOT_PROMPT);
   await saveLead(c.env, 'Web Chat User', body.message || '-');
   return c.json({ reply });
+});
+
+// Dropship 017 bisnes: untuk bot-wa-017 (Baileys QR) + MyGate
+app.post('/api/dropship-chat', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const text = String(body.message || '').trim();
+  const from = String(body.from || 'web').trim();
+  if (!text) return c.json({ reply: 'Ya boss, mau order apa? Bagi nama barang + qty.' });
+  // Auto tracking: kalau tanya tracking, jawab dari DB dulu tanpa AI
+  if (/barang kat mana|tracking|sampai bila|dah pos|trek/i.test(text) && from && from !== 'web') {
+    try {
+      const phoneDigits = from.replace(/\D/g, '').slice(-10);
+      const hit = await getLatestTracking(c.env, from).catch(() => null)
+        || await getLatestTracking(c.env, phoneDigits).catch(() => null);
+      if (hit?.tracking) return c.json({ reply: `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking: ${hit.tracking} boss.` });
+      if (hit) return c.json({ reply: `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking belum keluar, aku update esok boss.` });
+    } catch (e) { console.warn('tracking lookup gagal:', e?.message); }
+  }
+  const reply = await askAi(c.env, text, PROMPT_DROPSHIP);
+  await saveLead(c.env, `Dropship017 (${from})`, text);
+  return c.json({ reply });
+});
+
+// MyGate / borang order -> simpan D1
+app.post('/api/dropship-order', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const id = await saveDropshipOrder(c.env, {
+    nama: String(body.nama || '').slice(0, 100),
+    phone: String(body.phone || '').slice(0, 30),
+    barang: String(body.barang || '').slice(0, 200),
+    qty: Math.max(1, Math.min(99, Number(body.qty) || 1)),
+    alamat: String(body.alamat || '').slice(0, 500),
+  }).catch(() => null);
+  if (!id) return c.json({ ok: false, error: 'DB tidak sedia' }, 500);
+  await saveLead(c.env, `DropshipOrder #${id}`, `${body.nama} / ${body.phone} / ${body.barang} x${body.qty}`);
+  return c.json({ ok: true, orderId: id });
+});
+
+// Semak tracking: GET /api/dropship-tracking?phone=017xxxx
+app.get('/api/dropship-tracking', async (c) => {
+  const phone = String(c.req.query('phone') || '').trim();
+  if (!phone) return c.json({ ok: false, error: 'phone diperlukan' }, 400);
+  const hit = await getLatestTracking(c.env, phone);
+  if (!hit) return c.json({ ok: false, error: 'tiada order' }, 404);
+  return c.json({ ok: true, ...hit });
 });
 
 app.post('/api/pbt-chat', async (c) => {

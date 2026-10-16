@@ -303,9 +303,10 @@ function workersText(ai) {
   return '';
 }
 
-async function askGemini(env, message, systemPrompt, history = []) {
+async function askGemini(env, message, systemPrompt, history = [], opts = {}) {
   const apiKey = env?.GEMINI_API_KEY;
   if (!apiKey) return null;
+  const maxTokens = opts.maxTokens || 512;
   let model = env?.GEMINI_MODEL || geminiResolvedModel || 'auto';
   const candidates = [];
   if (model !== 'auto') candidates.push(model);
@@ -328,7 +329,7 @@ async function askGemini(env, message, systemPrompt, history = []) {
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
+          generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
         }),
       }
     );
@@ -887,6 +888,41 @@ app.get('/api/dropship-tracking', async (c) => {
   const hit = await getLatestTracking(c.env, phone);
   if (!hit) return c.json({ ok: false, error: 'tiada order' }, 404);
   return c.json({ ok: true, ...hit });
+});
+
+// Content factory: jana content calendar TikTok untuk hero products
+app.post('/api/content-plan', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const products = (Array.isArray(body.products) ? body.products : [])
+    .map((s) => String(s).slice(0, 80))
+    .filter(Boolean)
+    .slice(0, 5);
+  if (!products.length) return c.json({ ok: false, error: 'products diperlukan, cth ["kopi sabah","kuali viral"]' }, 400);
+  const lang = body.lang === 'en' ? 'en' : body.lang === 'both' ? 'both' : 'ms';
+  const days = Math.max(1, Math.min(14, Number(body.days) || 7));
+  const sysPrompt = `You are a TikTok content strategist for a dropship store (MyKira Niaga, Malaysia + international audience). Output a content calendar as JSON ONLY, no other text. Format: [{"day":1,"product":"...","hook":"first-3-seconds scroll-stopper line","script":"15-30 second spoken demo script","caption":"short caption with WhatsApp order CTA","hashtags":["#niche","#broad"],"postTime":"8pm MYT","cta":"...","discountCode":"TIK1"}]. Rules: one video per day, rotate products; hooks must stop scrollers; scripts simple show-and-tell demo; captions short with order CTA; hashtags mix niche + broad; discountCode unique TIK1..TIKn for tracking which video converts. Language: ${lang === 'both' ? 'alternate Malay and English days, mark with "lang" field per item' : lang === 'en' ? 'English' : 'Bahasa Melayu casual Sabah style'}. Days: ${days}.`;
+  const raw = await askGemini(
+    c.env,
+    `Hero products: ${products.join(', ')}. Generate ${days}-day plan.`,
+    sysPrompt,
+    [],
+    { maxTokens: 3000 }
+  );
+  if (!raw) return c.json({ ok: false, error: 'AI sibuk, cuba lagi' }, 502);
+  let plan = null;
+  try {
+    const m = String(raw).match(/\[[\s\S]*\]/);
+    if (m) plan = JSON.parse(m[0]);
+  } catch (e) { /* fallthrough */ }
+  if (!Array.isArray(plan)) return c.json({ ok: false, error: 'parse gagal', raw: String(raw).slice(0, 500) }, 502);
+  // Hantar ringkasan ke Telegram owner kalau diminta
+  if (body.send === 'telegram' && c.env.BOT_TOKEN && c.env.ADMIN_ID) {
+    const summary = `📅 <b>Content Plan ${days} hari</b>\n\n` + plan.map((p) =>
+      `<b>Hari ${p.day}</b> — ${escapeHtml(p.product || '')}\n🎣 ${escapeHtml(p.hook || '')}\n🏷️ ${escapeHtml(p.discountCode || '')} @ ${escapeHtml(p.postTime || '')}`
+    ).join('\n\n');
+    await sendTelegramMessage(c.env.BOT_TOKEN, c.env.ADMIN_ID, summary);
+  }
+  return c.json({ ok: true, plan });
 });
 
 app.post('/api/pbt-chat', async (c) => {

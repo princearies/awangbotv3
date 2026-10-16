@@ -1184,6 +1184,15 @@ app.post('/webhook', async (c) => {
       return c.text('OK');
     }
 
+    // Owner commands (ADMIN_ID sahaja): PAID n | POS n TRACKING | SAMPAI n | STATUS n | REFUND n
+    if (c.env.ADMIN_ID && chatId === String(c.env.ADMIN_ID)) {
+      const handled = await handleOwnerCommand(c.env, text);
+      if (handled) {
+        await sendTelegramMessage(c.env.BOT_TOKEN, chatId, handled);
+        return c.text('OK');
+      }
+    }
+
     const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
     await sendTelegramMessage(c.env.BOT_TOKEN, chatId, aiReply);
     await saveLead(c.env, `Telegram User (${chatId})`, text);
@@ -1192,6 +1201,48 @@ app.post('/webhook', async (c) => {
   }
   return c.text('OK');
 });
+
+// ----------------- OWNER COMMANDS (Telegram, ADMIN_ID sahaja) -----------------
+async function setOrderStatus(env, id, status, tracking) {
+  await ensureDropshipTables(env);
+  if (!env?.DB) return null;
+  if (tracking) {
+    await env.DB.prepare('UPDATE dropship_orders SET status = ?, tracking = ? WHERE id = ?').bind(status, tracking, id).run();
+  } else {
+    await env.DB.prepare('UPDATE dropship_orders SET status = ? WHERE id = ?').bind(status, id).run();
+  }
+  const row = await env.DB.prepare(
+    'SELECT id, nama, phone, barang, qty, status, tracking FROM dropship_orders WHERE id = ?'
+  ).bind(id).run();
+  return row?.results?.[0] || null;
+}
+
+function fmtOrder(o) {
+  return `Order #${o.id} — ${o.barang} x${o.qty}\n${o.nama} / ${o.phone}\nStatus: ${o.status}` +
+    (o.tracking ? `\nTracking: ${o.tracking}` : '') +
+    `\nSemak: https://awangbotv3.mykira.workers.dev/track?id=${o.id}`;
+}
+
+async function handleOwnerCommand(env, text) {
+  const m = String(text || '').trim().match(/^(paid|pos|sampai|status|refund)\s+(\d+)\s*([\s\S]*)$/i);
+  if (!m) return null;
+  const cmd = m[1].toLowerCase();
+  const id = Number(m[2]);
+  const extra = (m[3] || '').trim().slice(0, 100);
+  if (cmd === 'status') {
+    await ensureDropshipTables(env);
+    if (!env?.DB) return 'DB tidak sedia.';
+    const row = await env.DB.prepare(
+      'SELECT id, nama, phone, barang, qty, status, tracking FROM dropship_orders WHERE id = ?'
+    ).bind(id).run();
+    const hit = row?.results?.[0];
+    return hit ? fmtOrder(hit) : `Order #${id} tak jumpa.`;
+  }
+  const map = { paid: 'paid', pos: 'pos', sampai: 'sampai', refund: 'refund' };
+  const hit = await setOrderStatus(env, id, map[cmd], cmd === 'pos' ? extra : null).catch(() => null);
+  if (!hit) return `Order #${id} tak jumpa.`;
+  return `✅ ${fmtOrder(hit)}`;
+}
 
 // ----------------- WEBHOOK WHATSAPP (META / CLOUDFLARE) -----------------
 // Fungsi verifikasi webhook Meta WhatsApp (Challenge)

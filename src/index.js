@@ -65,9 +65,14 @@ app.post('/webhook-017', async (c) => {
     const t = text.toLowerCase();
     const isDropship = /(order|beli|belanja|nak beli|mau beli|barang|tracking|trek|parcel|pos laju|j&t|ninja|refund|return|tukar|rosak|salah barang|lambat|sampai bila|bayar|transfer|resit|qr|katalog|cod|stok|ready stock)/.test(t);
     const systemPrompt = isDropship ? PROMPT_DROPSHIP : PROMPT_017;
+    const history017 = isDropship ? await getHistory(c.env, from) : [];
 
     // 2. Balasan AI (Claude -> Cloudflare Workers AI)
-    const replyText = await askAi(c.env, text, systemPrompt);
+    const replyText = await askAi(c.env, text, systemPrompt, history017);
+    if (isDropship) {
+      await saveMsg(c.env, from, 'user', text);
+      await saveMsg(c.env, from, 'assistant', replyText);
+    }
 
     // 3. Hantar balik melalui WhatsApp Cloud API
     const token = c.env?.WHATSAPP_TOKEN_017;
@@ -162,11 +167,15 @@ function isCreditExhausted(status, bodyText) {
   return markers.some((m) => t.includes(m));
 }
 
-async function askClaude(env, message, systemPrompt) {
+async function askClaude(env, message, systemPrompt, history = []) {
   const apiKey = env?.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
   const model = env?.CLAUDE_MODEL || CLAUDE_DEFAULT_MODEL;
+  const past = (history || []).map((h) => ({
+    role: h.role === 'assistant' ? 'assistant' : 'user',
+    content: String(h.content || '').slice(0, 500),
+  }));
 
   const res = await fetch(CLAUDE_API_URL, {
     method: 'POST',
@@ -179,7 +188,7 @@ async function askClaude(env, message, systemPrompt) {
       model,
       max_tokens: CLAUDE_MAX_TOKENS,
       system: systemPrompt,
-      messages: [{ role: 'user', content: message }]
+      messages: [...past, { role: 'user', content: message }]
     })
   });
 
@@ -212,7 +221,7 @@ async function askClaude(env, message, systemPrompt) {
   return null;
 }
 
-async function askWorkersAi(env, message, systemPrompt) {
+async function askWorkersAi(env, message, systemPrompt, history = []) {
   if (!env?.AI) return null;
 
   const chain = (env?.CF_MODEL_CHAIN || CF_DEFAULT_CHAIN)
@@ -220,12 +229,18 @@ async function askWorkersAi(env, message, systemPrompt) {
     .map((m) => m.trim())
     .filter(Boolean);
 
+  const past = (history || []).map((h) => ({
+    role: h.role === 'assistant' ? 'assistant' : 'user',
+    content: String(h.content || '').slice(0, 500),
+  }));
+
   for (const model of chain) {
     if (cfDisabledModels.has(model)) continue;
     try {
       const ai = await env.AI.run(model, {
         messages: [
           { role: 'system', content: systemPrompt },
+          ...past,
           { role: 'user', content: message }
         ]
       });
@@ -240,12 +255,12 @@ async function askWorkersAi(env, message, systemPrompt) {
   return null;
 }
 
-async function askAi(env, message, customPrompt = null) {
+async function askAi(env, message, customPrompt = null, history = []) {
   const systemPrompt = customPrompt || AWANGBOT_PROMPT;
 
   if (!claudeDisabled && env?.ANTHROPIC_API_KEY) {
     try {
-      const out = await askClaude(env, message, systemPrompt);
+      const out = await askClaude(env, message, systemPrompt, history);
       if (out) return out;
     } catch (err) {
       console.warn('Claude request gagal, fallback:', err?.message || err);
@@ -253,7 +268,7 @@ async function askAi(env, message, customPrompt = null) {
   }
 
   try {
-    const out = await askWorkersAi(env, message, systemPrompt);
+    const out = await askWorkersAi(env, message, systemPrompt, history);
     if (out) return out;
   } catch (err) {
     console.error('Workers AI error:', err);
@@ -301,6 +316,65 @@ async function getLatestTracking(env, phone) {
     'SELECT id, barang, status, tracking FROM dropship_orders WHERE phone = ? ORDER BY id DESC LIMIT 1'
   ).bind(phone).run();
   return row?.results?.[0] || null;
+}
+
+// ----------------- INGATAN PERBUALAN (v2) -----------------
+async function ensureMemoryTable(env) {
+  if (!env?.DB) return;
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS chat_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, role TEXT, content TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
+  ).run();
+}
+
+async function saveMsg(env, phone, role, content) {
+  try {
+    await ensureMemoryTable(env);
+    if (!env?.DB || !phone) return;
+    await env.DB.prepare(
+      'INSERT INTO chat_memory (phone, role, content) VALUES (?, ?, ?)'
+    ).bind(phone, role, String(content).slice(0, 500)).run();
+    await env.DB.prepare(
+      'DELETE FROM chat_memory WHERE phone = ? AND id NOT IN (SELECT id FROM chat_memory WHERE phone = ? ORDER BY id DESC LIMIT 24)'
+    ).bind(phone, phone).run();
+  } catch (e) { console.warn('memory save gagal:', e?.message); }
+}
+
+async function getHistory(env, phone, limit = 10) {
+  try {
+    await ensureMemoryTable(env);
+    if (!env?.DB || !phone) return [];
+    const r = await env.DB.prepare(
+      'SELECT role, content FROM chat_memory WHERE phone = ? ORDER BY id DESC LIMIT ?'
+    ).bind(phone, limit).run();
+    return (r?.results || []).reverse().map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content,
+    }));
+  } catch (e) { console.warn('memory load gagal:', e?.message); return []; }
+}
+
+// Pengekstrak order: jalan bila ada no telefon / SETUJU, guna Workers AI free saja
+const EXTRACT_PROMPT = `Anda pengekstrak order untuk kedai online. Baca perbualan dan jawab JSON SAHAJA, tiada teks lain.
+Format: {"order":true/false,"nama":"","phone":"","barang":"","qty":1,"alamat":""}
+order=true HANYA jika nama, no telefon, nama barang DAN alamat semuanya jelas dalam perbualan. Jika mana-mana tiada atau tidak jelas, jawab {"order":false}. qty nombor 1-99.`;
+
+async function tryExtractOrder(env, history) {
+  try {
+    const convo = history.map((m) => (m.role === 'assistant' ? 'MyKira: ' : 'Customer: ') + m.content).join('\n').slice(-3000);
+    const raw = await askWorkersAi(env, 'Perbualan:\n' + convo, EXTRACT_PROMPT);
+    if (!raw) return null;
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    const o = JSON.parse(m[0]);
+    if (!o?.order || !o.nama || !o.phone || !o.barang || !o.alamat) return null;
+    return {
+      nama: String(o.nama).slice(0, 100),
+      phone: String(o.phone).slice(0, 30),
+      barang: String(o.barang).slice(0, 200),
+      qty: Math.max(1, Math.min(99, Number(o.qty) || 1)),
+      alamat: String(o.alamat).slice(0, 500),
+    };
+  } catch (e) { console.warn('extract gagal:', e?.message); return null; }
 }
 
 // ----------------- WEB PORTAL UI -----------------
@@ -628,8 +702,10 @@ app.post('/api/dropship-chat', async (c) => {
   const text = String(body.message || '').trim();
   const from = String(body.from || 'web').trim();
   if (!text) return c.json({ reply: 'Ya boss, mau order apa? Bagi nama barang + qty.' });
+  const useMemory = from && from !== 'web';
+  const history = useMemory ? await getHistory(c.env, from) : [];
   // Auto tracking: kalau tanya tracking, jawab dari DB dulu tanpa AI
-  if (/barang kat mana|tracking|sampai bila|dah pos|trek/i.test(text) && from && from !== 'web') {
+  if (/barang kat mana|tracking|sampai bila|dah pos|trek/i.test(text) && useMemory) {
     try {
       const phoneDigits = from.replace(/\D/g, '').slice(-10);
       const hit = await getLatestTracking(c.env, from).catch(() => null)
@@ -638,7 +714,21 @@ app.post('/api/dropship-chat', async (c) => {
       if (hit) return c.json({ reply: `Order #${hit.id} (${hit.barang}) status: ${hit.status}. Tracking belum keluar, aku update esok boss.` });
     } catch (e) { console.warn('tracking lookup gagal:', e?.message); }
   }
-  const reply = await askAi(c.env, text, PROMPT_DROPSHIP);
+  let reply = await askAi(c.env, text, PROMPT_DROPSHIP, history);
+  // Auto-save order: jalan bila ada no telefon / SETUJU, dan belum pernah simpan
+  if (useMemory) {
+    const alreadySaved = history.some((m) => m.role === 'assistant' && /Order #\d+ noted/.test(m.content || ''));
+    const looksComplete = /01\d{8,9}/.test(text) || /^(setuju|sah|jadi|confirm|ok jadi|baik jadi)/i.test(text.trim());
+    if (!alreadySaved && looksComplete) {
+      const ord = await tryExtractOrder(c.env, [...history, { role: 'user', content: text }]);
+      if (ord) {
+        const id = await saveDropshipOrder(c.env, ord).catch(() => null);
+        if (id) reply += `\n\n✅ Order #${id} noted boss — ${ord.barang} x${ord.qty}. Transfer dan bagi resit kat sini ya.`;
+      }
+    }
+    await saveMsg(c.env, from, 'user', text);
+    await saveMsg(c.env, from, 'assistant', reply);
+  }
   await saveLead(c.env, `Dropship017 (${from})`, text);
   return c.json({ reply });
 });

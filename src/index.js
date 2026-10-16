@@ -255,23 +255,78 @@ async function askWorkersAi(env, message, systemPrompt, history = []) {
   return null;
 }
 
+// Gemini free tier (AI Studio) — pilihan utama, jimat prepaid Claude
+const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash';
+
+async function askGemini(env, message, systemPrompt, history = []) {
+  const apiKey = env?.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  const model = env?.GEMINI_MODEL || GEMINI_DEFAULT_MODEL;
+  const contents = [
+    ...(history || []).map((h) => ({
+      role: h.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: String(h.content || '').slice(0, 1000) }],
+    })),
+    { role: 'user', parts: [{ text: String(message).slice(0, 2000) }] },
+  ];
+  try {
+    const res = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents,
+          generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.warn('Gemini HTTP ' + res.status);
+      return null;
+    }
+    const data = await res.json().catch(() => null);
+    const text = (data?.candidates?.[0]?.content?.parts || [])
+      .map((p) => p?.text || '')
+      .join('')
+      .trim();
+    return text || null;
+  } catch (err) {
+    console.warn('Gemini request gagal:', err?.message || err);
+    return null;
+  }
+}
+
 async function askAi(env, message, customPrompt = null, history = []) {
   const systemPrompt = customPrompt || AWANGBOT_PROMPT;
 
-  if (!claudeDisabled && env?.ANTHROPIC_API_KEY) {
+  // 1. Gemini free dulu (kalau ada key)
+  if (env?.GEMINI_API_KEY) {
     try {
-      const out = await askClaude(env, message, systemPrompt, history);
+      const out = await askGemini(env, message, systemPrompt, history);
       if (out) return out;
     } catch (err) {
-      console.warn('Claude request gagal, fallback:', err?.message || err);
+      console.warn('Gemini gagal, fallback:', err?.message || err);
     }
   }
 
+  // 2. Workers AI free
   try {
     const out = await askWorkersAi(env, message, systemPrompt, history);
     if (out) return out;
   } catch (err) {
     console.error('Workers AI error:', err);
+  }
+
+  // 3. Claude prepaid — last resort saja ($5 trial cepat habis)
+  if (!claudeDisabled && env?.ANTHROPIC_API_KEY) {
+    try {
+      const out = await askClaude(env, message, systemPrompt, history);
+      if (out) return out;
+    } catch (err) {
+      console.warn('Claude request gagal:', err?.message || err);
+    }
   }
 
   return 'Maaf, sistem AI sedang sibuk. Sila cuba sebentar lagi.';
@@ -755,6 +810,15 @@ app.get('/api/dropship-tracking', async (c) => {
   const hit = await getLatestTracking(c.env, phone);
   if (!hit) return c.json({ ok: false, error: 'tiada order' }, 404);
   return c.json({ ok: true, ...hit });
+});
+
+// DEBUG sementara: lihat output mentah pengekstrak
+app.post('/api/debug-extract', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const history = Array.isArray(body.history) ? body.history : [];
+  const convo = history.map((m) => (m.role === 'assistant' ? 'MyKira: ' : 'Customer: ') + (m.content || '')).join('\n').slice(-3000);
+  const raw = await askWorkersAi(c.env, 'Perbualan:\n' + convo, EXTRACT_PROMPT);
+  return c.json({ raw });
 });
 
 app.post('/api/pbt-chat', async (c) => {

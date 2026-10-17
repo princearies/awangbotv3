@@ -451,6 +451,65 @@ async function getLatestTracking(env, phone) {
   return row?.results?.[0] || null;
 }
 
+// ----------------- ANALITIK KEDAI (first-party, percuma) -----------------
+// Satu baris per paparan halaman MyKiraShop. Tiada cookie, tiada pihak ketiga.
+async function ensureHitsTable(env) {
+  if (!env?.DB) return;
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS shop_hits (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT DEFAULT "/", ref TEXT DEFAULT "", country TEXT DEFAULT "", ua TEXT DEFAULT "", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
+  ).run();
+  await env.DB.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_shop_hits_created ON shop_hits(created_at)'
+  ).run();
+}
+
+/** Bot/pralihat link tak dikira sebagai pelawat. */
+const BOT_RE = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|curl|wget|python-requests|headless|lighthouse/i;
+
+app.post('/api/hit', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const path = String(body?.path || '/').slice(0, 120);
+    const ref = String(body?.ref || '').slice(0, 120);
+    const ua = String(c.req.header('user-agent') || '').slice(0, 200);
+    const country = String(body?.country || c.req.header('cf-ipcountry') || '').slice(0, 8);
+    // Jangan kira bot, dan jangan kira halaman analitik/API sendiri.
+    if (BOT_RE.test(ua) || path.startsWith('/api') || path.startsWith('/stats')) {
+      return new Response(null, { status: 204 });
+    }
+    await ensureHitsTable(c.env);
+    await c.env.DB.prepare(
+      'INSERT INTO shop_hits (path, ref, country, ua) VALUES (?, ?, ?, ?)'
+    ).bind(path, ref, country, ua).run();
+  } catch (e) { /* analitik tak boleh pecahkan kedai */ }
+  return new Response(null, { status: 204 });
+});
+
+app.get('/api/shop-stats', async (c) => {
+  try {
+    await ensureHitsTable(c.env);
+    // Rekod lama (>180 hari) dibuang bila owner buka stats — bukan setiap hit.
+    await c.env.DB.prepare("DELETE FROM shop_hits WHERE created_at < datetime('now', '-180 days')").run();
+
+    const q = async (sql) => (await c.env.DB.prepare(sql).run())?.results || [];
+    const [total] = await q('SELECT COUNT(*) AS n FROM shop_hits');
+    const [hari] = await q("SELECT COUNT(*) AS n FROM shop_hits WHERE created_at >= date('now')");
+    const [minggu] = await q("SELECT COUNT(*) AS n FROM shop_hits WHERE created_at >= datetime('now','-7 days')");
+
+    return c.json({
+      ok: true,
+      jumlah: total?.n || 0,
+      hari_ini: hari?.n || 0,
+      minggu_ini: minggu?.n || 0,
+      harian: await q("SELECT date(created_at) AS tarikh, COUNT(*) AS n FROM shop_hits WHERE created_at >= datetime('now','-14 days') GROUP BY tarikh ORDER BY tarikh"),
+      top_path: await q("SELECT path, COUNT(*) AS n FROM shop_hits WHERE created_at >= datetime('now','-30 days') GROUP BY path ORDER BY n DESC LIMIT 12"),
+      top_ref: await q("SELECT CASE WHEN ref = '' THEN '(terus)' ELSE ref END AS ref, COUNT(*) AS n FROM shop_hits WHERE created_at >= datetime('now','-30 days') GROUP BY ref ORDER BY n DESC LIMIT 10"),
+      top_negara: await q("SELECT country, COUNT(*) AS n FROM shop_hits WHERE created_at >= datetime('now','-30 days') GROUP BY country ORDER BY n DESC LIMIT 10"),
+      terkini: await q("SELECT path, country, created_at FROM shop_hits ORDER BY id DESC LIMIT 20"),
+    });
+  } catch (e) { return c.json({ ok: false, error: 'DB ralat' }, 500); }
+});
+
 // ----------------- KATALOG PRODUK (source of truth) -----------------
 async function ensureProductsTable(env) {
   if (!env?.DB) return;

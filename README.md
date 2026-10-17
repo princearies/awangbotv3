@@ -73,8 +73,11 @@ Setiap `git push` ke `main` di-deploy automatik dalam **~1 minit** oleh cron di 
 | Token | `CLOUDFLARE_API_TOKEN` dari `~/.hermes/.env` (VPS) |
 | Log | `~/logs/awangbotv3-autodeploy.log` |
 
-Skrip akan **berhenti** dan log amaran kalau klon deploy ada perubahan yang belum
-commit — supaya hotfix manual tak ditimpa tanpa sengaja.
+Skrip akan **berhenti** dan log amaran kalau klon deploy ada perubahan pada fail
+**sumber** yang belum commit — supaya hotfix manual tak ditimpa tanpa sengaja.
+`node_modules/`, `.wrangler/` dan `package-lock.json` dikecualikan daripada semakan itu
+kerana `npm install` mengubahnya secara normal (dan `node_modules` memang dijejak dalam
+repo ini — kesan sejarah sebelum `.gitignore`).
 
 ```bash
 tail -f ~/logs/awangbotv3-autodeploy.log   # tengok status deploy

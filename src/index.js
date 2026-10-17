@@ -416,11 +416,26 @@ async function ensureDropshipTables(env) {
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS dropship_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, phone TEXT, barang TEXT, qty INTEGER DEFAULT 1, alamat TEXT, status TEXT DEFAULT "baru", tracking TEXT DEFAULT "", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
   ).run();
+  // Jumlah autoritatif yang dihantar oleh MyKiraaShop (sudah termasuk kos pos).
+  // ALTER akan gagal kalau kolum sudah ada — itu normal, jadi abaikan.
+  try {
+    await env.DB.prepare('ALTER TABLE dropship_orders ADD COLUMN harga REAL DEFAULT NULL').run();
+  } catch (e) { /* kolum sudah ada */ }
 }
 
 async function saveDropshipOrder(env, o) {
   await ensureDropshipTables(env);
   if (!env?.DB) return null;
+  const harga = Number(o?.harga) > 0 ? Number(o.harga) : null;
+  try {
+    const r = await env.DB.prepare(
+      'INSERT INTO dropship_orders (nama, phone, barang, qty, alamat, status, harga) VALUES (?, ?, ?, ?, ?, "baru", ?)'
+    ).bind(o.nama || '-', o.phone || '-', o.barang || '-', o.qty || 1, o.alamat || '-', harga).run();
+    return r?.meta?.last_row_id || null;
+  } catch (e) {
+    // Kalau kolum `harga` belum wujud, order tetap mesti disimpan.
+    console.warn('insert dengan harga gagal, cuba tanpa harga:', e?.message);
+  }
   const r = await env.DB.prepare(
     'INSERT INTO dropship_orders (nama, phone, barang, qty, alamat, status) VALUES (?, ?, ?, ?, ?, "baru")'
   ).bind(o.nama || '-', o.phone || '-', o.barang || '-', o.qty || 1, o.alamat || '-').run();
@@ -923,6 +938,8 @@ app.post('/api/dropship-order', async (c) => {
     barang: String(body.barang || '').slice(0, 200),
     qty: Math.max(1, Math.min(99, Number(body.qty) || 1)),
     alamat: String(body.alamat || '').slice(0, 500),
+    // Jumlah autoritatif (pilihan) — MyKiraaShop hantar jumlah penuh termasuk pos.
+    harga: Number(body.harga) > 0 ? Number(body.harga) : null,
   }).catch(() => null);
   if (!id) return c.json({ ok: false, error: 'DB tidak sedia' }, 500);
   await saveLead(c.env, `DropshipOrder #${id}`, `${body.nama} / ${body.phone} / ${body.barang} x${body.qty}`);
@@ -945,17 +962,32 @@ app.get('/api/order', async (c) => {
   if (!id) return c.json({ ok: false, error: 'id diperlukan' }, 400);
   try {
     await ensureDropshipTables(c.env);
-    const row = await c.env.DB.prepare(
-      'SELECT id, barang, qty, status FROM dropship_orders WHERE id = ?'
-    ).bind(id).run();
+    // Kalau kolum `harga` tiada (contoh ALTER gagal), jangan biarkan halaman
+    // bayaran rosak — cuba lagi tanpa kolum itu.
+    let row;
+    try {
+      row = await c.env.DB.prepare(
+        'SELECT id, barang, qty, status, harga FROM dropship_orders WHERE id = ?'
+      ).bind(id).run();
+    } catch (e) {
+      row = await c.env.DB.prepare(
+        'SELECT id, barang, qty, status FROM dropship_orders WHERE id = ?'
+      ).bind(id).run();
+    }
     const hit = row?.results?.[0];
     if (!hit) return c.json({ ok: false, error: 'tiada order' }, 404);
-    // Padankan harga dari katalog
+    // Jumlah: utamakan nilai autoritatif yang disimpan oleh shop (sudah termasuk
+    // kos pos). Kalau tiada, baru cuba padan dari katalog.
     let harga = null, product_id = null;
-    try {
-      const mp = matchProduct(await listActiveProducts(c.env), hit.barang);
-      if (mp) { harga = Number(mp.harga) * Number(hit.qty || 1); product_id = mp.id; }
-    } catch (e) { /* abaikan */ }
+    const tersimpan = Number(hit.harga);
+    if (Number.isFinite(tersimpan) && tersimpan > 0) {
+      harga = tersimpan;
+    } else {
+      try {
+        const mp = matchProduct(await listActiveProducts(c.env), hit.barang);
+        if (mp) { harga = Number(mp.harga) * Number(hit.qty || 1); product_id = mp.id; }
+      } catch (e) { /* abaikan */ }
+    }
     return c.json({ ok: true, ...hit, harga, product_id });
   } catch (e) { return c.json({ ok: false, error: 'DB ralat' }, 500); }
 });

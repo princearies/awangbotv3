@@ -44,27 +44,47 @@ Rahsia (set dengan `wrangler secret put`, **tidak** dalam repo):
 ## Table `dropship_orders`
 
 ```
-id, nama, phone, barang, qty, alamat, status, tracking, created_at
+id, nama, phone, barang, qty, alamat, status, tracking, harga, created_at
 ```
 
-Satu baris = satu pesanan. `barang` ialah teks bebas — order dari MyKiraaShop datang
+Satu baris = satu pesanan. `barang` ialah teks bebas — order dari MyKiraShop datang
 sebagai senarai item digabung, contoh:
 
 ```
-Classic Tee - Logo MyKiraa (M/Hitam) x2; Snapback Cap - Kiraa (One Size/Navy) x1 | Jumlah RM177.00 (pos percuma)
+Classic Tee - Logo MyKira (M/Hitam) x2; Snapback Cap - Kira (One Size/Navy) x1 | Jumlah RM177.00 (pos percuma)
 ```
 
-`GET /api/order` cuba padankan `barang` dengan katalog `products` (fungsi `matchProduct`,
-fuzzy dua hala) untuk pulangkan medan `harga`.
+`GET /api/order` padankan `barang` dengan katalog `products` (fungsi `matchProduct`,
+fuzzy dua hala) untuk pulangkan medan `harga` **kalau order itu tiada nilai tersimpan**.
 
-> **Perhatian:** `matchProduct` memadankan **satu** produk sahaja, dan `harga` dikira
-> `harga_produk × qty`. Untuk order MyKiraaShop:
+> **Jumlah autoritatif.** `matchProduct` memadankan **satu** produk sahaja dan mengira
+> `harga = harga_produk × qty`, jadi ia tidak boleh dipercayai untuk troli MyKiraShop:
 > - troli bercampur (lebih daripada satu jenis produk) → angka itu **tidak** mewakili jumlah sebenar;
 > - kos pos (RM8 bawah RM150) tidak dikira langsung.
 >
-> Jadi `harga` sengaja dibiarkan `null` untuk order shop, dan jumlah sebenar sentiasa
-> ada dalam `barang`. Pelanggan taip jumlah itu di halaman bayaran. Untuk auto-isi
-> jumlah tepat, worker ini perlu terima jumlah autoritatif dari shop.
+> Sebab itu MyKiraShop menghantar jumlah sebenar (`subtotal + pos`) sebagai medan
+> `harga` ke `POST /api/dropship-order`. Nilai itu disimpan dalam kolum `harga`
+> (`ensureDropshipTables` buat `ALTER TABLE dropship_orders ADD COLUMN harga REAL`,
+> berpengawal try/catch supaya tak pecah kalau kolum dah ada), dan `/api/order`
+> **utamakan** nilai tersimpan itu (`harga ?? kiraan katalog`).
+>
+> Order tanpa `harga` (aliran bot WhatsApp / pemanggil lama) kekal `null` dan guna
+> kiraan katalog seperti dahulu — tiada perubahan tingkah laku untuk bot.
+
+## Table `products`
+
+16 produk MyKiraShop diselaraskan ke table ini (ditanda `supplier = 'MyKiraShop'`)
+supaya owner nampak semuanya di satu tempat. Penjana SQL dan katalognya tinggal dalam
+repo MyKiraShop (`scripts/sync-catalog.mjs` → `scripts/catalog-sync.sql`), diapply
+dengan:
+
+```bash
+npx wrangler d1 execute awangbot78 --remote --file ..\project3\mykiraashop\scripts\catalog-sync.sql
+```
+
+SQL itu idempotent (`INSERT ... WHERE NOT EXISTS` + `UPDATE ... WHERE nama =`), jadi
+produk owner lain tidak tersentuh. Katalog ini **tidak** dipakai dalam prompt AI bot —
+`listActiveProducts` hanya di `/api/order` dan `/api/products`.
 
 ## Auto-deploy
 

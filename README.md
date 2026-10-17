@@ -73,18 +73,49 @@ fuzzy dua hala) untuk pulangkan medan `harga` **kalau order itu tiada nilai ters
 
 ## Table `products`
 
-16 produk MyKiraShop diselaraskan ke table ini (ditanda `supplier = 'MyKiraShop'`)
-supaya owner nampak semuanya di satu tempat. Penjana SQL dan katalognya tinggal dalam
-repo MyKiraShop (`scripts/sync-catalog.mjs` → `scripts/catalog-sync.sql`), diapply
-dengan:
+Sumber sebenar katalog **kedai MyKiraShop**. 16 produk asal diselaraskan ke sini
+(ditanda `supplier = 'MyKiraShop'`). Penjana SQL dan katalognya tinggal dalam repo
+MyKiraShop (`scripts/sync-catalog.mjs` → `scripts/catalog-sync.sql`), diapply dengan:
 
 ```bash
 npx wrangler d1 execute awangbot78 --remote --file ..\project3\mykirashop\scripts\catalog-sync.sql
 ```
 
+> **Nota token:** `CLOUDFLARE_API_TOKEN` dalam `~/.hermes/.env` tiada kebenaran D1
+> (balas `code: 7403`). Untuk D1, guna token dari `~/kiraenterprisev5.5/.env.d1`.
+
 SQL itu idempotent (`INSERT ... WHERE NOT EXISTS` + `UPDATE ... WHERE nama =`), jadi
 produk owner lain tidak tersentuh. Katalog ini **tidak** dipakai dalam prompt AI bot —
 `listActiveProducts` hanya di `/api/order` dan `/api/products`.
+
+### Kolum untuk kedai
+
+Kolum asal: `nama`, `harga`, `modal`, `supplier`, `gambar`, `penerangan`, `aktif`.
+Kolum tambahan (ditambah automatik oleh `ensureProductsTable`):
+
+| Kolum | Guna |
+| --- | --- |
+| `slug` | kunci padanan dengan kedai (`/product/<slug>`) |
+| `kategori` | `baju` atau `accessory` → hantar ke kedai; kosong = bukan produk kedai |
+| `sizes` | senarai saiz dipisah koma, cth `S,M,L,XL` |
+| `colors` | senarai warna dipisah koma, cth `Hitam,Navy` |
+
+`GET /api/catalog-shop` memulangkan baris `aktif = 1` + `kategori IN ('baju','accessory')`
+**tanpa `modal`** — dipanggil oleh kedai melalui service binding.
+
+### Urus dari Telegram (owner sahaja)
+
+```
+SENARAI                          # senarai produk + slug
+TAMBAH nama | harga | modal | kategori | saiz | warna | gambar | penerangan
+       cth: TAMBAH Hoodie Kira | 149 | 70 | baju | S,M,L,XL | Hitam,Navy
+EDIT <id> <medan> <nilai>        # medan: nama, harga, modal, kategori, saiz, warna, gambar, penerangan, slug
+       cth: EDIT 21 harga 89   |   EDIT 21 kategori baju   |   EDIT 21 saiz S,M,L,XL
+HARGA <id> <harga>               # ringkasan untuk harga
+TUTUP <id> / BUKA <id>           # produk keluar/masuk kedai
+```
+
+Slug dijana automatik daripada nama (unik). Produk yang `TUTUP` terus hilang dari kedai.
 
 ## Auto-deploy
 

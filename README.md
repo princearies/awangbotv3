@@ -58,8 +58,13 @@ Classic Tee - Logo MyKiraa (M/Hitam) x2; Snapback Cap - Kiraa (One Size/Navy) x1
 fuzzy dua hala) untuk pulangkan medan `harga`.
 
 > **Perhatian:** `matchProduct` memadankan **satu** produk sahaja, dan `harga` dikira
-> `harga_produk × qty`. Untuk troli bercampur (lebih daripada satu jenis produk),
-> angka itu **tidak** mewakili jumlah sebenar. Jumlah sebenar sentiasa ada dalam `barang`.
+> `harga_produk × qty`. Untuk order MyKiraaShop:
+> - troli bercampur (lebih daripada satu jenis produk) → angka itu **tidak** mewakili jumlah sebenar;
+> - kos pos (RM8 bawah RM150) tidak dikira langsung.
+>
+> Jadi `harga` sengaja dibiarkan `null` untuk order shop, dan jumlah sebenar sentiasa
+> ada dalam `barang`. Pelanggan taip jumlah itu di halaman bayaran. Untuk auto-isi
+> jumlah tepat, worker ini perlu terima jumlah autoritatif dari shop.
 
 ## Auto-deploy
 

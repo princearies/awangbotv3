@@ -516,6 +516,37 @@ async function ensureProductsTable(env) {
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT NOT NULL, harga REAL NOT NULL DEFAULT 0, modal REAL NOT NULL DEFAULT 0, supplier TEXT DEFAULT "", gambar TEXT DEFAULT "", penerangan TEXT DEFAULT "", aktif INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
   ).run();
+  // Kolum tambahan untuk kedai MyKiraShop. ALTER gagal = kolum sudah wujud.
+  for (const sql of [
+    "ALTER TABLE products ADD COLUMN slug TEXT DEFAULT ''",
+    "ALTER TABLE products ADD COLUMN kategori TEXT DEFAULT ''",
+    "ALTER TABLE products ADD COLUMN sizes TEXT DEFAULT ''",
+    "ALTER TABLE products ADD COLUMN colors TEXT DEFAULT ''",
+  ]) {
+    try { await env.DB.prepare(sql).run(); } catch (e) { /* kolum sudah ada */ }
+  }
+}
+
+/** "Hoodie Pullover — Kira" -> "hoodie-pullover-kira" */
+function slugify(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+/** Slug unik (tambah -2, -3 ... kalau dah dipakai). */
+async function uniqueSlug(env, base, skipId = 0) {
+  const slug0 = base || 'produk';
+  for (let i = 0; i < 50; i++) {
+    const cand = i ? `${slug0}-${i + 1}` : slug0;
+    const r = await env.DB.prepare('SELECT id FROM products WHERE slug = ? AND id != ? LIMIT 1')
+      .bind(cand, skipId).run().catch(() => null);
+    if (!(r?.results || []).length) return cand;
+  }
+  return `${slug0}-${Date.now().toString(36)}`;
 }
 
 async function listActiveProducts(env) {
@@ -1057,6 +1088,22 @@ app.get('/api/products', async (c) => {
   return c.json({ ok: true, products: list });
 });
 
+// Katalog penuh untuk kedai MyKiraShop (tanpa modal). Dipanggil melalui
+// service binding dari worker kedai. Hanya produk berkategori kedai.
+app.get('/api/catalog-shop', async (c) => {
+  try {
+    await ensureProductsTable(c.env);
+    if (!c.env?.DB) return c.json({ ok: true, products: [] });
+    const r = await c.env.DB.prepare(
+      "SELECT slug, nama, harga, gambar, penerangan, kategori, sizes, colors FROM products WHERE aktif = 1 AND kategori IN ('baju', 'accessory') ORDER BY id"
+    ).run();
+    return c.json({ ok: true, products: r?.results || [] });
+  } catch (e) {
+    console.warn('catalog-shop gagal:', e?.message);
+    return c.json({ ok: false, products: [] }, 500);
+  }
+});
+
 // Halaman bayaran: DuitNow (MY) / SOL / USDC / PayPal (global)
 app.get('/pay', async (c) => {
   const orderId = String(c.req.query('order') || '').slice(0, 12);
@@ -1388,30 +1435,68 @@ function fmtOrder(o) {
 async function handleOwnerCommand(env, text) {
   const t = String(text || '').trim();
   // --- Katalog produk ---
-  const pm = t.match(/^(tambah|senarai|tutup|buka|harga)\b\s*([\s\S]*)$/i);
+  const pm = t.match(/^(tambah|senarai|tutup|buka|harga|edit)\b\s*([\s\S]*)$/i);
   if (pm) {
     const pcmd = pm[1].toLowerCase();
     const parg = (pm[2] || '').trim();
     await ensureProductsTable(env);
     if (!env?.DB) return 'DB tidak sedia.';
     if (pcmd === 'senarai') {
-      const r = await env.DB.prepare('SELECT id, nama, harga, aktif FROM products ORDER BY id').run();
+      const r = await env.DB.prepare('SELECT id, nama, harga, aktif, kategori, slug FROM products ORDER BY id').run();
       const rows = r?.results || [];
       if (!rows.length) return 'Katalog kosong. Tambah: TAMBAH nama | harga | modal';
-      return '📦 KATALOG:\n' + rows.map((p) => `#${p.id} ${p.nama} — RM${p.harga}${p.aktif ? '' : ' (TUTUP)'}`).join('\n');
+      return '📦 KATALOG:\n' + rows.map((p) =>
+        `#${p.id} ${p.nama} — RM${p.harga}${p.kategori ? ` [${p.kategori}]` : ''}${p.aktif ? '' : ' (TUTUP)'}${p.slug ? `\n     /product/${p.slug}` : ''}`
+      ).join('\n');
     }
     if (pcmd === 'tambah') {
-      const parts = parg.split('|').map((s) => s.trim()).filter(Boolean);
-      if (parts.length < 2) return 'Format: TAMBAH nama | harga | modal(opsyenal)\nCth: TAMBAH Ubat gigi ungu | 19.90 | 12';
+      // nama | harga | modal | kategori | saiz | warna | gambar | penerangan
+      const parts = parg.split('|').map((s) => s.trim());
+      if (parts.length < 2 || !parts[0]) {
+        return 'Format: TAMBAH nama | harga | modal | kategori | saiz | warna | gambar | penerangan' +
+          '\nCth: TAMBAH Hoodie Kira | 149 | 70 | baju | S,M,L,XL | Hitam,Navy';
+      }
       const nama = parts[0].slice(0, 100);
       const harga = Math.max(0, Number(parts[1]) || 0);
       const modal = parts[2] ? Math.max(0, Number(parts[2]) || 0) : 0;
+      const kategori = (parts[3] || '').toLowerCase().slice(0, 20);
+      const sizes = (parts[4] || '').slice(0, 100);
+      const colors = (parts[5] || '').slice(0, 100);
+      const gambar = (parts[6] || '').slice(0, 300);
+      const penerangan = (parts[7] || '').slice(0, 500);
+      const slug = await uniqueSlug(env, slugify(nama));
       const r = await env.DB.prepare(
-        'INSERT INTO products (nama, harga, modal) VALUES (?, ?, ?)'
-      ).bind(nama, harga, modal).run().catch(() => null);
+        'INSERT INTO products (nama, harga, modal, slug, kategori, sizes, colors, gambar, penerangan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(nama, harga, modal, slug, kategori, sizes, colors, gambar, penerangan).run().catch(() => null);
       const id = r?.meta?.last_row_id;
       if (!id) return 'Gagal simpan.';
-      return `✅ Produk #${id} masuk katalog:\n${nama} — RM${harga}${modal ? ` (modal RM${modal})` : ''}`;
+      const kedai = kategori === 'baju' || kategori === 'accessory'
+        ? `\n🛍️ Muncul di kedai: /product/${slug}`
+        : '\n⚠️ Set kategori (baju/accessory) untuk muncul di kedai: EDIT ' + id + ' kategori baju';
+      return `✅ Produk #${id} masuk katalog:\n${nama} — RM${harga}${modal ? ` (modal RM${modal})` : ''}${kedai}`;
+    }
+    if (pcmd === 'edit') {
+      const em = parg.match(/^(\d+)\s+([a-zA-Z]+)\s+([\s\S]+)$/);
+      if (!em) {
+        return 'Format: EDIT <id> <medan> <nilai>\nMedan: nama, harga, modal, kategori, saiz, warna, gambar, penerangan, slug' +
+          '\nCth: EDIT 21 harga 89   |   EDIT 21 kategori baju   |   EDIT 21 saiz S,M,L,XL';
+      }
+      const id = Number(em[1]);
+      const medan = em[2].toLowerCase();
+      const nilai = em[3].trim();
+      const peta = {
+        nama: 'nama', harga: 'harga', modal: 'modal', kategori: 'kategori',
+        saiz: 'sizes', sizes: 'sizes', warna: 'colors', colors: 'colors',
+        gambar: 'gambar', penerangan: 'penerangan', slug: 'slug',
+      };
+      const col = peta[medan];
+      if (!col) return 'Medan tak dikenali: ' + medan;
+      let val;
+      if (col === 'harga' || col === 'modal') val = Math.max(0, Number(nilai) || 0);
+      else if (col === 'slug') val = await uniqueSlug(env, slugify(nilai), id);
+      else val = nilai.slice(0, 500);
+      await env.DB.prepare(`UPDATE products SET ${col} = ? WHERE id = ?`).bind(val, id).run();
+      return `✅ #${id} ${col} -> ${val}`;
     }
     if (pcmd === 'tutup' || pcmd === 'buka') {
       const id = Number(parg);

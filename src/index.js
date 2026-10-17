@@ -416,7 +416,7 @@ async function ensureDropshipTables(env) {
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS dropship_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, nama TEXT, phone TEXT, barang TEXT, qty INTEGER DEFAULT 1, alamat TEXT, status TEXT DEFAULT "baru", tracking TEXT DEFAULT "", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)'
   ).run();
-  // Jumlah autoritatif yang dihantar oleh MyKiraaShop (sudah termasuk kos pos).
+  // Jumlah autoritatif yang dihantar oleh MyKiraShop (sudah termasuk kos pos).
   // ALTER akan gagal kalau kolum sudah ada — itu normal, jadi abaikan.
   try {
     await env.DB.prepare('ALTER TABLE dropship_orders ADD COLUMN harga REAL DEFAULT NULL').run();
@@ -938,7 +938,7 @@ app.post('/api/dropship-order', async (c) => {
     barang: String(body.barang || '').slice(0, 200),
     qty: Math.max(1, Math.min(99, Number(body.qty) || 1)),
     alamat: String(body.alamat || '').slice(0, 500),
-    // Jumlah autoritatif (pilihan) — MyKiraaShop hantar jumlah penuh termasuk pos.
+    // Jumlah autoritatif (pilihan) — MyKiraShop hantar jumlah penuh termasuk pos.
     harga: Number(body.harga) > 0 ? Number(body.harga) : null,
   }).catch(() => null);
   if (!id) return c.json({ ok: false, error: 'DB tidak sedia' }, 500);

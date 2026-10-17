@@ -79,7 +79,7 @@ repo MyKiraShop (`scripts/sync-catalog.mjs` → `scripts/catalog-sync.sql`), dia
 dengan:
 
 ```bash
-npx wrangler d1 execute awangbot78 --remote --file ..\project3\mykiraashop\scripts\catalog-sync.sql
+npx wrangler d1 execute awangbot78 --remote --file ..\project3\mykirashop\scripts\catalog-sync.sql
 ```
 
 SQL itu idempotent (`INSERT ... WHERE NOT EXISTS` + `UPDATE ... WHERE nama =`), jadi

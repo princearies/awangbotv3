@@ -23,9 +23,14 @@ wrangler.toml        # binding D1 (awangbot78), AI, vars
 | `CLAUDE_MODEL` | var | model Claude utama |
 | `CF_MODEL_CHAIN` | var | rantaian fallback Workers AI |
 | `PHONE_NUMBER_ID_017` | var | Phone Number ID WABA |
+| `AGENT_WALLET` | var | Dompet terima Agent API. Kosong = guna `SALES_WALLET` |
+| `AGENT_STATS_KEY` | var | Kunci untuk `GET /api/agent/stats?key=` |
+| `AGENT_PRICES` | var | Override harga (JSON), cth `{"ringkas":0.004}` |
+| `SOL_NETWORK` | var | `devnet` untuk ujian; kosong = mainnet |
+| `SOL_RPC` | var | RPC tersuai (Helius/QuickNode). Kosong = awam + fallback |
 
 Rahsia (set dengan `wrangler secret put`, **tidak** dalam repo):
-`ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN_017`, `WHATSAPP_TOKEN`, `BOT_TOKEN`, `DUITNOW_QR`, `PAYPAL_ME`, `SALES_WALLET`
+`ANTHROPIC_API_KEY`, `WHATSAPP_TOKEN_017`, `WHATSAPP_TOKEN`, `BOT_TOKEN`, `DUITNOW_QR`, `PAYPAL_ME`, `SALES_WALLET`, `BOT_TOKEN_PEKERJA`, `GEMINI_API_KEY`
 
 ## Route utama
 
@@ -40,6 +45,35 @@ Rahsia (set dengan `wrangler secret put`, **tidak** dalam repo):
 | `POST /api/dropship-chat` | Chat dropship |
 | `POST /api/<bidang>-chat` | Chat per bidang: klinik, burger, pbt, bank, property, … |
 | `POST /register` | Pendaftaran |
+
+## Agent API — jual servis AI kepada bot/agen lain (x402)
+
+Endpoint berbayar untuk **bot/agen lain** (bukan manusia). Bayaran masuk terus ke dompet Solana
+(`SALES_WALLET`), disahkan sendiri on-chain — tiada pihak ketiga, tiada private key di worker,
+tiada akaun/API key untuk pelanggan.
+
+| Route | Keterangan |
+| --- | --- |
+| `GET /api/agent` | Katalog servis + harga (JSON) |
+| `GET /.well-known/x402.json` | Manifest penemuan (diindeks x402 Bazaar / Agent Bazaar) |
+| `POST /api/agent/<servis>` | Endpoint berbayar: 402 → bayar → hasil |
+| `GET /api/agent/status?challenge=` | Semak status bayaran satu cabaran |
+| `GET /api/agent/stats?key=` | Hasil/pendapatan (kunci `AGENT_STATS_KEY`) |
+| `GET /agent` | Halaman manusia: senarai harga + cara uji |
+| `POST /webhook-pekerja` | Webhook **@mypekerja1_bot**: `/servis`, `/beli`, `/semak`, `/hasil` |
+
+Servis: `ringkas`, `terjemah`, `tulis`, `json` (guna rantaian AI sedia ada — Gemini/Workers AI, kos ~0).
+
+**Aliran:**
+
+1. Bot panggil `POST /api/agent/ringkas` tanpa bayaran → **402** + harga (USDC & SOL) + `reference` unik.
+2. Bot bayar ke dompet; `reference` dimasukkan sebagai akaun tambahan dalam transaksi.
+3. Bot panggil semula dengan `X-Payment-Ref: <reference>` (atau `X-Payment-Tx: <signature>`).
+4. Worker sahkan on-chain: `getSignaturesForAddress(reference)` → `getTransaction` → kira **beza baki**
+   dompet kita (SOL asli + USDC SPL). Replay ditolak (`tx_sig` UNIQUE). Hasil di-cache (idempotent).
+
+`maxSupportedTransactionVersion: 1` diperlukan (Solana kini ada transaksi versi 1).
+USDC = harga tepat; SOL = min 0.00005 SOL (yuran rangkaian).
 
 ## Table `dropship_orders`
 

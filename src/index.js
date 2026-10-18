@@ -1597,4 +1597,763 @@ app.get('/whatsapp/webhook', handleWhatsAppVerify);
 app.post('/webhook/whatsapp', handleWhatsAppMessage);
 app.post('/whatsapp/webhook', handleWhatsAppMessage);
 
+// ================= AGENT API (x402) — jual servis AI kepada bot/agen lain =================
+// Aliran:
+//   POST /api/agent/<servis>  (tanpa bayaran)
+//     -> 402 Payment Required + harga (USDC/SOL) + dompet + "reference" unik
+//   Bot bayar ke dompet (SOL asli atau USDC SPL); "reference" dimasukkan dlm transaksi
+//     -> panggil semula dengan X-Payment-Ref: <reference> (atau X-Payment-Tx: <signature>)
+//   Worker sahkan sendiri (self-facilitate):
+//     getSignaturesForAddress(reference) -> getTransaction -> kira beza baki dompet kita
+//     -> tolak replay (tx_sig UNIQUE) -> jalankan servis -> pulangkan hasil
+// Tiada private key diperlukan. Awak cuma TERIMA bayaran.
+
+const AGENT_CAIP2 = {
+  mainnet: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+  devnet: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1'
+};
+const AGENT_USDC_DEVNET = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+const AGENT_CHALLENGE_TTL = 900; // 15 minit sah untuk satu cabaran
+
+// Harga lalai (USD). Boleh ubah tanpa deploy: var AGENT_PRICES = {"ringkas":0.004,...}
+const AGENT_DEFAULT_PRICES = { ringkas: 0.004, terjemah: 0.003, tulis: 0.008, json: 0.005 };
+
+const AGENT_SERVICE_META = {
+  ringkas: {
+    nama: 'Ringkas teks',
+    desc: 'Ringkaskan teks panjang jadi poin yang padat. Input: teks (maks 6000 aksara).',
+    maxInput: 6000,
+    system: 'Anda editor profesional. Ringkaskan teks yang diberi kepada poin utama yang padat dan tepat. Jangan tambah maklumat baharu. Jawab dengan ringkasan sahaja, tiada mukadimah.'
+  },
+  terjemah: {
+    nama: 'Terjemah',
+    desc: 'Terjemah teks. Sasaran melalui medan "to" (ms|en|zh|ta). Lalai: auto (Melayu <-> Inggeris).',
+    maxInput: 4000,
+    system: 'Anda penterjemah profesional. Terjemah dengan tepat dan semula jadi, kekalkan maksud dan nada. Jawab dengan terjemahan sahaja, tiada nota atau mukadimah.'
+  },
+  tulis: {
+    nama: 'Tulis kandungan',
+    desc: 'Jana kandungan: kapsyen media sosial, penerangan produk, emel, idea. Arahan dalam "text".',
+    maxInput: 2000,
+    system: 'Anda copywriter berpengalaman untuk pasaran Malaysia. Hasilkan kandungan yang jelas, menarik dan boleh terus digunakan. Jawab dengan kandungan sahaja.'
+  },
+  json: {
+    nama: 'Ekstrak JSON',
+    desc: 'Tukar teks tidak berstruktur jadi JSON sah. Bentuk yang dikehendaki melalui medan "skema".',
+    maxInput: 6000,
+    system: 'Anda pengekstrak data. Pulangkan JSON SAHAJA — tiada kod fence, tiada penjelasan. Guna null bila maklumat tiada.'
+  }
+};
+
+function agentPrice(env, servis) {
+  const lalai = AGENT_DEFAULT_PRICES[servis] || 0.005;
+  try {
+    const ubah = env?.AGENT_PRICES ? JSON.parse(env.AGENT_PRICES) : null;
+    const v = Number(ubah?.[servis]);
+    if (Number.isFinite(v) && v > 0) return v;
+  } catch (e) { /* var cacat -> guna lalai */ }
+  return lalai;
+}
+
+function agentChain(env) {
+  const dev = String(env?.SOL_NETWORK || 'mainnet').toLowerCase().includes('devnet');
+  return {
+    dev,
+    caip2: dev ? AGENT_CAIP2.devnet : AGENT_CAIP2.mainnet,
+    usdc: dev ? AGENT_USDC_DEVNET : USDC_MINT,
+    rpc: env?.SOL_RPC || (dev ? 'https://api.devnet.solana.com' : 'https://api.mainnet-beta.solana.com')
+  };
+}
+
+function agentWallet(env) {
+  return String(env?.AGENT_WALLET || salesWallet(env) || '').trim();
+}
+
+/** Senarai RPC — cuba satu demi satu kalau yang pertama gagal/rate-limit. */
+function agentRpcUrls(env) {
+  const dev = agentIsDevnet(env);
+  const senarai = [];
+  if (env?.SOL_RPC) senarai.push(String(env.SOL_RPC).trim());
+  if (dev) senarai.push('https://api.devnet.solana.com');
+  senarai.push('https://solana-rpc.publicnode.com', 'https://api.mainnet-beta.solana.com');
+  return [...new Set(senarai.filter(Boolean))];
+}
+
+// --- base58 (tiada dependency) ---
+const AGENT_B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function agentB58(bytes) {
+  const digits = [0];
+  for (const b of bytes) {
+    let carry = b;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] * 256;
+      digits[i] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = Math.floor(carry / 58); }
+  }
+  let out = '';
+  for (const b of bytes) { if (b === 0) out += '1'; else break; }
+  for (let i = digits.length - 1; i >= 0; i--) out += AGENT_B58[digits[i]];
+  return out;
+}
+
+function agentRandHex(n = 16) {
+  const b = new Uint8Array(n);
+  crypto.getRandomValues(b);
+  return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+function agentRandPubkey() {
+  const b = new Uint8Array(32);
+  crypto.getRandomValues(b);
+  return agentB58(b);
+}
+
+// btoa() hanya terima Latin1 — JSON kita ada aksara seperti — … jadi encode UTF-8 dahulu.
+function agentB64(str) {
+  const bytes = new TextEncoder().encode(String(str));
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function agentUnb64(b64) {
+  const bin = atob(String(b64));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+// Kadar SOL/USD untuk harga yang adil (cache 60s, ada nilai simpanan).
+let agentSolCache = { usd: 0, at: 0 };
+async function agentSolUsd(env) {
+  const now = Date.now();
+  if (agentSolCache.usd && now - agentSolCache.at < 60000) return agentSolCache.usd;
+  try {
+    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+    const data = await res.json().catch(() => null);
+    const p = Number(data?.solana?.usd || 0);
+    if (p > 1) { agentSolCache = { usd: p, at: now }; return p; }
+  } catch (e) { /* guna simpanan */ }
+  return Number(env?.SOL_USD_FALLBACK || 150);
+}
+
+async function ensureAgentTable(env) {
+  if (!env?.DB) return;
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS agent_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      challenge TEXT UNIQUE NOT NULL,
+      ref TEXT DEFAULT '',
+      service TEXT NOT NULL,
+      price_usd REAL DEFAULT 0,
+      asset TEXT DEFAULT '',
+      amount TEXT DEFAULT '',
+      network TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      tx_sig TEXT UNIQUE,
+      payer TEXT DEFAULT '',
+      payload TEXT DEFAULT '',
+      result TEXT DEFAULT '',
+      error TEXT DEFAULT '',
+      ms INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      paid_at INTEGER DEFAULT 0
+    )`
+  ).run();
+  // Kolum tambahan (table lama). ALTER gagal = kolum sudah wujud.
+  for (const sql of ['ALTER TABLE agent_calls ADD COLUMN payload TEXT DEFAULT \'\'']) {
+    try { await env.DB.prepare(sql).run(); } catch (e) { /* sudah ada */ }
+  }
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_agent_calls_created ON agent_calls(created_at)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_agent_calls_ref ON agent_calls(ref)').run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_agent_calls_status ON agent_calls(status)').run();
+}
+
+async function agentRpc(env, method, params) {
+  const urls = agentRpcUrls(env);
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+      });
+      const data = await res.json().catch(() => null);
+      if (!data) { lastErr = new Error('jawapan RPC bukan JSON'); continue; }
+      if (data.error) throw new Error(data.error.message || 'RPC error');
+      return data.result;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('RPC gagal');
+}
+
+/** Kira beza baki dompet kita dalam satu transaksi. Terima SOL asli atau USDC SPL. */
+async function agentCheckTx(env, priceUsd, txSig, expectRef) {
+  const chain = agentChain(env);
+  const wallet = agentWallet(env);
+  const solUsd = await agentSolUsd(env);
+  const perluUsdc = Math.round(Number(priceUsd) * 1e6);
+  const perluLamports = Math.max(Math.round((Number(priceUsd) / solUsd) * 1e9), 50000);
+
+  const tx = await agentRpc(env, 'getTransaction', [txSig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }]);
+  if (!tx) return { ok: false, reason: 'transaksi tak dijumpai' };
+  if (tx.meta?.err) return { ok: false, reason: 'transaksi gagal di rantaian' };
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (tx.blockTime && nowSec - tx.blockTime > 1800) return { ok: false, reason: 'transaksi lebih 30 minit' };
+
+  const keys = (tx.transaction?.message?.accountKeys || []).map((k) => (typeof k === 'string' ? k : k.pubkey));
+  if (!keys.includes(wallet)) return { ok: false, reason: 'dompet kita tiada dalam transaksi' };
+  if (expectRef && !keys.includes(expectRef)) return { ok: false, reason: 'reference tidak sepadan' };
+  const payer = keys[0] || '';
+
+  // 1. SOL asli — beza baki (lamports)
+  const idx = keys.indexOf(wallet);
+  const solDelta = Number((tx.meta?.postBalances?.[idx] || 0) - (tx.meta?.preBalances?.[idx] || 0));
+  if (solDelta >= perluLamports) {
+    return { ok: true, asset: 'sol', amount: String(perluLamports), dibayar: String(solDelta), payer, txSig };
+  }
+
+  // 2. USDC (SPL) — beza baki token milik dompet kita, mint mesti sepadan
+  let usdcDelta = 0;
+  for (const post of tx.meta?.postTokenBalances || []) {
+    if (post.mint !== chain.usdc || post.owner !== wallet) continue;
+    const before = (tx.meta?.preTokenBalances || []).find((p) => p.accountIndex === post.accountIndex);
+    usdcDelta += Number(post.uiTokenAmount?.amount || 0) - Number(before?.uiTokenAmount?.amount || 0);
+  }
+  if (usdcDelta >= perluUsdc) {
+    return { ok: true, asset: 'usdc', amount: String(perluUsdc), dibayar: String(usdcDelta), payer, txSig };
+  }
+
+  return { ok: false, reason: 'jumlah tak cukup (SOL ' + solDelta + ' lamports / USDC ' + usdcDelta + ' unit)' };
+}
+
+/** Baca bukti bayaran dari header/query. */
+function agentProof(c) {
+  const out = { tx: '', ref: '', challenge: '' };
+  const ps = c.req.header('payment-signature') || c.req.header('x-payment');
+  if (ps) {
+    try {
+      const j = JSON.parse(agentUnb64(ps));
+      out.tx = String(j.tx || j.signature || j.transaction || '');
+      out.ref = String(j.reference || j.ref || '');
+      out.challenge = String(j.challenge || '');
+    } catch (e) { out.tx = String(ps).trim(); }
+  }
+  out.tx = out.tx || c.req.header('x-payment-tx') || c.req.query('tx') || '';
+  out.ref = out.ref || c.req.header('x-payment-ref') || c.req.query('ref') || '';
+  out.challenge = out.challenge || c.req.header('x-challenge') || c.req.query('challenge') || '';
+  return out;
+}
+
+function agentPrompt(servis, text, body) {
+  if (servis === 'terjemah') {
+    const to = String(body?.to || '').trim().toLowerCase().slice(0, 8);
+    return 'Terjemah ke ' + (to || 'Bahasa Melayu jika teks bukan Melayu; Inggeris jika teks Melayu') + ':\n\n' + text;
+  }
+  if (servis === 'json') {
+    const skema = String(body?.skema || body?.schema || body?.shape || '').trim().slice(0, 800);
+    return (skema ? 'Bentuk JSON yang dikehendaki: ' + skema + '\n\n' : '') + 'Teks:\n' + text;
+  }
+  return text;
+}
+
+/** Balas 402 + cabaran bayaran (reference unik). */
+async function agentChallenge(c, servis, opt = {}) {
+  const env = c.env;
+  const chain = agentChain(env);
+  const wallet = agentWallet(env);
+  const usd = agentPrice(env, servis);
+  const solUsd = await agentSolUsd(env);
+  const lamports = Math.max(Math.round((usd / solUsd) * 1e9), 50000);
+  const origin = new URL(c.req.url).origin;
+  const svc = AGENT_SERVICE_META[servis] || {};
+
+  let challenge = opt.challenge || '';
+  let ref = opt.ref || '';
+  if (!challenge || !ref) {
+    challenge = agentRandHex(16);
+    ref = agentRandPubkey();
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO agent_calls (challenge, ref, service, price_usd, network, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(challenge, ref, servis, usd, chain.caip2, Date.now()).run();
+  }
+
+  const asas = {
+    scheme: 'exact',
+    network: chain.caip2,
+    payTo: wallet,
+    resource: origin + '/api/agent/' + servis,
+    description: svc.desc || '',
+    mimeType: 'application/json',
+    maxTimeoutSeconds: 120
+  };
+  const accepts = [
+    { ...asas, asset: chain.usdc, amount: String(Math.round(usd * 1e6)), maxAmountRequired: String(Math.round(usd * 1e6)), extra: { name: 'USDC', decimals: 6 } },
+    { ...asas, asset: 'native', amount: String(lamports), maxAmountRequired: String(lamports), extra: { name: 'SOL', decimals: 9, native: true } }
+  ];
+  const label = encodeURIComponent('MyKira Agent API');
+  const mesej = encodeURIComponent('agent:' + servis);
+  const usdcUri = `solana:${wallet}?amount=${usd.toFixed(6)}&spl-token=${chain.usdc}&reference=${ref}&label=${label}&message=${mesej}`;
+  const solUri = `solana:${wallet}?amount=${(lamports / 1e9).toFixed(9)}&reference=${ref}&label=${label}&message=${mesej}`;
+
+  const payload = {
+    x402Version: 2,
+    error: opt.error || 'Payment Required',
+    resource: { url: origin + '/api/agent/' + servis, description: svc.desc || '', mimeType: 'application/json' },
+    accepts
+  };
+
+  return c.json({
+    ok: false,
+    code: 402,
+    error: opt.error || 'Bayaran diperlukan',
+    servis,
+    challenge,
+    reference: ref,
+    wallet,
+    network: chain.caip2,
+    harga_usd: usd,
+    jumlah_usdc: usd,
+    jumlah_sol: Number((lamports / 1e9).toFixed(9)),
+    expires_at: Math.floor(Date.now() / 1000) + AGENT_CHALLENGE_TTL,
+    accepts,
+    cara_bayar: {
+      usdc: usdcUri,
+      sol: solUri,
+      langkah: [
+        '1. Bayar jumlah di atas ke dompet (USDC atau SOL). Masukkan "reference" sebagai akaun tambahan dalam transaksi.',
+        '2. Panggil semula endpoint sama dengan header "X-Payment-Ref: <reference>" (atau "X-Payment-Tx: <signature>").',
+        '3. Worker sahkan on-chain lalu pulangkan hasil. Status: GET /api/agent/status?challenge=<challenge>'
+      ]
+    }
+  }, 402, { 'PAYMENT-REQUIRED': agentB64(JSON.stringify(payload)) });
+}
+
+/** Teras: sahkan bayaran + jalankan servis. Dikongsi oleh HTTP (x402) dan Telegram. */
+async function agentSettle(env, servis, svc, text, proof) {
+  let row = null;
+  if (proof.challenge) {
+    row = (await env.DB.prepare('SELECT * FROM agent_calls WHERE challenge = ?').bind(proof.challenge).run())?.results?.[0] || null;
+  }
+  if (!row && proof.ref) {
+    row = (await env.DB.prepare('SELECT * FROM agent_calls WHERE ref = ? ORDER BY id DESC LIMIT 1').bind(proof.ref).run())?.results?.[0] || null;
+  }
+  if (!row) return { ok: false, reason: 'Cabaran tak dikenali — minta cabaran baharu.' };
+  if (row.service !== servis) return { ok: false, reason: 'Cabaran ini untuk servis lain.' };
+
+  if (row.status === 'paid' && row.result) {
+    return { ok: true, hasil: row.result, tx: row.tx_sig, asset: row.asset, amount: row.amount, cached: true, row };
+  }
+
+  let txSig = String(proof.tx || '');
+  if (!txSig && (proof.ref || row.ref)) {
+    const refCari = proof.ref || row.ref;
+    const sigs = await agentRpc(env, 'getSignaturesForAddress', [refCari, { limit: 5, commitment: 'confirmed' }]).catch(() => null);
+    txSig = ((sigs || []).find((s) => s && !s.err) || {}).signature || '';
+  }
+  if (!txSig) return { ok: false, reason: 'Bayaran belum dikesan pada rantaian. Cuba lagi sebentar.', row };
+
+  const check = await agentCheckTx(env, row.price_usd, txSig, proof.ref || row.ref);
+  if (!check.ok) return { ok: false, reason: 'Bayaran tak sah: ' + check.reason, row };
+
+  // Tolak replay — satu transaksi hanya boleh bayar satu panggilan.
+  const guna = (await env.DB.prepare('SELECT id FROM agent_calls WHERE tx_sig = ?').bind(txSig).run())?.results?.[0];
+  if (guna && guna.id !== row.id) return { ok: false, reason: 'Bayaran ini sudah digunakan.', row };
+
+  const t0 = Date.now();
+  let hasil = '';
+  try {
+    hasil = await askAi(env, agentPrompt(servis, text, {}), svc.system);
+  } catch (err) {
+    console.error('Agent AI gagal:', err?.message || err);
+  }
+  const ms = Date.now() - t0;
+  if (!hasil) return { ok: false, reason: 'Servis gagal dijalankan (bayaran tidak digunakan). Cuba lagi.', row };
+
+  await env.DB.prepare(
+    'UPDATE agent_calls SET status = ?, tx_sig = ?, payer = ?, asset = ?, amount = ?, paid_at = ?, result = ?, ms = ? WHERE id = ?'
+  ).bind('paid', txSig, check.payer, check.asset, check.amount, Date.now(), hasil.slice(0, 20000), ms, row.id).run();
+
+  // Notifikasi pemilik — "duit masuk".
+  try {
+    if (env.BOT_TOKEN && env.ADMIN_ID) {
+      const [j] = (await env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_usd),0) AS usd FROM agent_calls WHERE status = 'paid'").run())?.results || [];
+      await sendTelegramMessage(env.BOT_TOKEN, env.ADMIN_ID,
+        '🤖 Agent API — bayaran masuk!\n' +
+        '• Servis: ' + servis + '\n' +
+        '• Harga: $' + Number(row.price_usd).toFixed(4) + ' (' + String(check.asset).toUpperCase() + ')\n' +
+        '• Dari: ' + String(check.payer).slice(0, 12) + '…\n' +
+        '• Jumlah terkumpul: ' + (j?.n || 0) + ' panggilan / $' + Number(j?.usd || 0).toFixed(4) + '\n' +
+        '• Tx: ' + txSig.slice(0, 20) + '…'
+      );
+    }
+  } catch (e) { /* notifikasi tak boleh gagalkan servis */ }
+
+  return { ok: true, hasil, tx: txSig, asset: check.asset, amount: check.amount, payer: check.payer, ms, row };
+}
+
+/** HTTP (x402): semak + jalankan servis. */
+async function agentFulfil(c, servis, svc, text, body, proof) {
+  const r = await agentSettle(c.env, servis, svc, text, proof);
+  if (r.ok) {
+    return c.json({
+      ok: true, servis, hasil: r.hasil, cache: r.cached || false,
+      bayaran: { wallet: agentWallet(c.env), asset: r.asset, jumlah: r.amount, dari: r.payer, tx: r.tx },
+      ms: r.ms || 0
+    }, 200, { 'PAYMENT-RESPONSE': agentB64(JSON.stringify({ success: true, tx: r.tx, network: agentChain(c.env).caip2 })) });
+  }
+  return agentChallenge(c, servis, r.row
+    ? { challenge: r.row.challenge, ref: r.row.ref, error: r.reason }
+    : { error: r.reason });
+}
+
+async function agentHandler(c) {
+  try {
+    const servis = String(c.req.param('servis') || '').toLowerCase().trim();
+    const svc = AGENT_SERVICE_META[servis];
+    if (!svc) {
+      return c.json({ ok: false, error: 'Servis tak dikenali', servis_tersedia: Object.keys(AGENT_SERVICE_META) }, 404);
+    }
+    await ensureAgentTable(c.env);
+
+    const body = await c.req.json().catch(() => ({}));
+    const text = String(body?.text ?? body?.input ?? body?.prompt ?? body?.q ?? c.req.query('text') ?? '').slice(0, svc.maxInput).trim();
+    const proof = agentProof(c);
+
+    if (proof.tx || proof.ref || proof.challenge) {
+      if (!text) return c.json({ ok: false, error: 'Medan "text" diperlukan' }, 400);
+      return await agentFulfil(c, servis, svc, text, body, proof);
+    }
+    return await agentChallenge(c, servis);
+  } catch (err) {
+    console.error('Agent API ralat:', err);
+    return c.json({ ok: false, error: 'Ralat dalaman' }, 500);
+  }
+}
+
+// Katalog servis (JSON) — ini yang dibaca agen lain.
+app.get('/api/agent', async (c) => {
+  const env = c.env;
+  const chain = agentChain(env);
+  const origin = new URL(c.req.url).origin;
+  const wallet = agentWallet(env);
+  const solUsd = await agentSolUsd(env);
+  const servis = Object.entries(AGENT_SERVICE_META).map(([id, s]) => {
+    const usd = agentPrice(env, id);
+    return {
+      id, nama: s.nama, keterangan: s.desc,
+      endpoint: origin + '/api/agent/' + id,
+      method: 'POST',
+      harga_usd: usd,
+      harga_usdc: usd,
+      harga_sol: Number(((usd / solUsd)).toFixed(9)),
+      medan: { text: 'wajib', to: id === 'terjemah' ? 'pilihan (ms|en|zh|ta)' : undefined, skema: id === 'json' ? 'pilihan' : undefined }
+    };
+  });
+  return c.json({
+    ok: true,
+    nama: 'MyKira Agent API',
+    protokol: 'x402 (lean: bayar dahulu, sahkan on-chain)',
+    version: 2,
+    network: chain.caip2,
+    pay_to: wallet,
+    aset: { usdc: chain.usdc, sol: 'native' },
+    kadar_sol_usd: solUsd,
+    manifest: origin + '/.well-known/x402.json',
+    halaman: origin + '/agent',
+    stats: origin + '/api/agent/stats?key=…',
+    servis
+  });
+});
+
+// Manifest penemuan — diindeks oleh x402 Bazaar / Agent Bazaar / x402scan.
+app.get('/.well-known/x402.json', async (c) => {
+  const env = c.env;
+  const chain = agentChain(env);
+  const origin = new URL(c.req.url).origin;
+  const wallet = agentWallet(env);
+  const solUsd = await agentSolUsd(env);
+  return c.json({
+    x402Version: 2,
+    name: 'MyKira Agent API',
+    description: 'Servis AI berbayar untuk bot/agen: ringkas, terjemah, tulis kandungan, ekstrak JSON. Bayar per panggilan dengan USDC atau SOL pada Solana.',
+    network: chain.caip2,
+    payTo: wallet,
+    provider: { name: 'MyKira', url: origin },
+    resources: Object.entries(AGENT_SERVICE_META).map(([id, s]) => {
+      const usd = agentPrice(env, id);
+      return {
+        resource: origin + '/api/agent/' + id,
+        method: 'POST',
+        description: s.nama + ' — ' + s.desc,
+        mimeType: 'application/json',
+        accepts: [
+          { scheme: 'exact', network: chain.caip2, asset: chain.usdc, payTo: wallet, amount: String(Math.round(usd * 1e6)), maxAmountRequired: String(Math.round(usd * 1e6)) },
+          { scheme: 'exact', network: chain.caip2, asset: 'native', payTo: wallet, amount: String(Math.max(Math.round((usd / solUsd) * 1e9), 50000)), maxAmountRequired: String(Math.max(Math.round((usd / solUsd) * 1e9), 50000)) }
+        ]
+      };
+    })
+  });
+});
+
+// Status cabaran (untuk agen yang poll, bukan retry).
+app.get('/api/agent/status', async (c) => {
+  try {
+    await ensureAgentTable(c.env);
+    const challenge = String(c.req.query('challenge') || '');
+    const ref = String(c.req.query('ref') || '');
+    if (!challenge && !ref) return c.json({ ok: false, error: 'Beri ?challenge= atau ?ref=' }, 400);
+    const row = challenge
+      ? (await c.env.DB.prepare('SELECT * FROM agent_calls WHERE challenge = ?').bind(challenge).run())?.results?.[0]
+      : (await c.env.DB.prepare('SELECT * FROM agent_calls WHERE ref = ? ORDER BY id DESC LIMIT 1').bind(ref).run())?.results?.[0];
+    if (!row) return c.json({ ok: false, error: 'Cabaran tak dijumpai' }, 404);
+    return c.json({
+      ok: true, challenge: row.challenge, servis: row.service, status: row.status,
+      harga_usd: row.price_usd, asset: row.asset || null, tx: row.tx_sig || null,
+      hasil: row.status === 'paid' ? row.result : null,
+      created_at: row.created_at, paid_at: row.paid_at || null
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: 'Ralat DB' }, 500);
+  }
+});
+
+// Hasil/pendapatan Agent API — owner sahaja.
+app.get('/api/agent/stats', async (c) => {
+  try {
+    const jangka = String(c.env.AGENT_STATS_KEY || '');
+    if (!jangka) return c.json({ ok: false, error: 'Stats dimatikan (AGENT_STATS_KEY kosong)' }, 404);
+    const kunci = String(c.req.query('key') || c.req.header('x-key') || '');
+    if (kunci !== jangka) return c.json({ ok: false, error: 'Kunci salah' }, 403);
+    await ensureAgentTable(c.env);
+    const q = async (sql) => (await c.env.DB.prepare(sql).run())?.results || [];
+    const [ringkas] = await q("SELECT COUNT(*) AS jumlah, SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS dibayar, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending, COALESCE(SUM(CASE WHEN status = 'paid' THEN price_usd ELSE 0 END),0) AS hasil_usd FROM agent_calls");
+    return c.json({
+      ok: true,
+      jumlah_cabaran: ringkas?.jumlah || 0,
+      dibayar: ringkas?.dibayar || 0,
+      belum_dibayar: ringkas?.pending || 0,
+      hasil_usd: Number(ringkas?.hasil_usd || 0),
+      harian: await q("SELECT date(paid_at/1000, 'unixepoch') AS tarikh, COUNT(*) AS n, COALESCE(SUM(price_usd),0) AS usd FROM agent_calls WHERE status = 'paid' GROUP BY tarikh ORDER BY tarikh DESC LIMIT 14"),
+      per_servis: await q("SELECT service, COUNT(*) AS n, COALESCE(SUM(price_usd),0) AS usd FROM agent_calls WHERE status = 'paid' GROUP BY service ORDER BY n DESC"),
+      pembayar: await q("SELECT payer, COUNT(*) AS n, COALESCE(SUM(price_usd),0) AS usd FROM agent_calls WHERE status = 'paid' GROUP BY payer ORDER BY n DESC LIMIT 10"),
+      terkini: await q("SELECT service, status, price_usd, asset, payer, created_at FROM agent_calls ORDER BY id DESC LIMIT 20")
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: 'Ralat DB' }, 500);
+  }
+});
+
+// Halaman manusia — tengok harga, dompet & cara uji.
+app.get('/agent', async (c) => {
+  const env = c.env;
+  const origin = new URL(c.req.url).origin;
+  const wallet = agentWallet(env);
+  const solUsd = await agentSolUsd(env);
+  const baris = Object.entries(AGENT_SERVICE_META).map(([id, s]) => {
+    const usd = agentPrice(env, id);
+    const sol = Math.max(Math.round((usd / solUsd) * 1e9), 50000) / 1e9;
+    return '<tr><td><code>' + id + '</code></td><td>' + escapeHtml(s.nama) + '</td><td>' +
+      '<strong>$' + usd.toFixed(4) + '</strong> USDC<br><span class="dim">' + sol.toFixed(6) + ' SOL</span></td><td class="dim">' +
+      escapeHtml(s.desc) + '</td></tr>';
+  }).join('');
+  const html = `<!doctype html><html lang="ms"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>MyKira Agent API — servis AI untuk bot</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body { margin:0; background:#0b0f19; color:#e5e7eb; font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:32px 20px }
+  .wrap { max-width: 880px; margin: 0 auto }
+  h1 { font-size: 26px; margin: 0 0 6px; background: linear-gradient(90deg,#a78bfa,#f472b6); -webkit-background-clip:text; background-clip:text; color:transparent }
+  p.lead { color:#94a3b8; margin:0 0 22px }
+  table { width:100%; border-collapse: collapse; margin: 14px 0 26px; font-size:14px }
+  th,td { text-align:left; padding:10px 12px; border-bottom:1px solid #1f2937; vertical-align:top }
+  th { color:#94a3b8; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em }
+  code { background:#111827; border:1px solid #1f2937; border-radius:6px; padding:1px 6px; font-size:13px; color:#c4b5fd }
+  pre { background:#111827; border:1px solid #1f2937; border-radius:10px; padding:14px; overflow-x:auto; font-size:12.5px; color:#e2e8f0 }
+  .card { background:#0f1523; border:1px solid #1f2937; border-radius:14px; padding:18px 20px; margin-bottom:18px }
+  .dim { color:#94a3b8; font-size:12.5px }
+  a { color:#a78bfa }
+  .tag { display:inline-block; background:#1e1b4b; color:#c4b5fd; border:1px solid #3730a3; border-radius:999px; padding:2px 10px; font-size:12px }
+</style></head><body><div class="wrap">
+<h1>MyKira Agent API</h1>
+<p class="lead">Servis AI berbayar untuk <strong>bot &amp; agen</strong>. Bayar per panggilan dengan USDC atau SOL di Solana — tiada akaun, tiada API key. <span class="tag">x402</span></p>
+
+<div class="card">
+  <div class="dim">Dompet penerima (Solana)</div>
+  <div><code>${escapeHtml(wallet)}</code></div>
+  <div class="dim" style="margin-top:8px">Rangkaian: <code>${agentChain(env).caip2}</code> &nbsp;·&nbsp; Kadar rujukan: 1 SOL ≈ $${solUsd.toFixed(2)}</div>
+</div>
+
+<table>
+  <thead><tr><th>ID</th><th>Servis</th><th>Harga</th><th>Keterangan</th></tr></thead>
+  <tbody>${baris}</tbody>
+</table>
+
+<div class="card">
+  <strong>Cara guna (2 langkah)</strong>
+  <pre># 1. Panggil tanpa bayaran -> dapat harga + reference
+curl -s -X POST ${origin}/api/agent/ringkas \\
+  -H 'content-type: application/json' \\
+  -d '{"text":"Teks panjang yang nak diringkaskan..."}'
+
+# 2. Bayar ke dompet (masukkan "reference"), lepas itu hantar bukti:
+curl -s -X POST ${origin}/api/agent/ringkas \\
+  -H 'content-type: application/json' \\
+  -H 'X-Payment-Ref: &lt;reference&gt;' \\
+  -d '{"text":"..."}'</pre>
+  <div class="dim">Manifest penemuan: <a href="/.well-known/x402.json">/.well-known/x402.json</a> · Katalog JSON: <a href="/api/agent">/api/agent</a></div>
+</div>
+</div></body></html>`;
+  return c.html(html);
+});
+
+app.post('/api/agent/:servis', agentHandler);
+app.get('/api/agent/:servis', agentHandler);
+
+// ----------------- BOT PEKERJA @mypekerja1_bot — muka jualan + semakan bayaran -----------------
+// Set token  : npx wrangler secret put BOT_TOKEN_PEKERJA
+// Set webhook: https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://awangbotv3.mykira.workers.dev/webhook-pekerja
+// Selagi token kosong, endpoint ini senyap (tak buat apa-apa).
+
+async function pekerjaSend(env, chatId, text) {
+  const token = env?.BOT_TOKEN_PEKERJA;
+  if (!token || !chatId) return;
+  try {
+    await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: String(text).slice(0, 4000),
+        disable_web_page_preview: true
+      })
+    });
+  } catch (e) { /* senyap */ }
+}
+
+/** Cabaran bayaran tanpa HTTP — untuk aliran Telegram. */
+async function agentNewChallenge(env, servis, payload = '') {
+  const chain = agentChain(env);
+  const usd = agentPrice(env, servis);
+  const solUsd = await agentSolUsd(env);
+  const lamports = Math.max(Math.round((usd / solUsd) * 1e9), 50000);
+  const challenge = agentRandHex(16);
+  const ref = agentRandPubkey();
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO agent_calls (challenge, ref, service, price_usd, network, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(challenge, ref, servis, usd, chain.caip2, String(payload || '').slice(0, 6000), Date.now()).run();
+  return { challenge, ref, usd, lamports, chain, wallet: agentWallet(env) };
+}
+
+function pekerjaSenarai(env) {
+  return Object.entries(AGENT_SERVICE_META).map(([id, s], i) => {
+    const usd = agentPrice(env, id);
+    return (i + 1) + '. /beli ' + id + ' <teks>\n   ' + s.nama + ' — $' + usd.toFixed(4) +
+      ' USDC (~' + (Math.max(Math.round((usd / 150) * 1e9), 50000) / 1e9).toFixed(5) + ' SOL)\n   ' + s.desc;
+  }).join('\n\n');
+}
+
+app.post('/webhook-pekerja', async (c) => {
+  try {
+    const env = c.env;
+    const u = await c.req.json().catch(() => ({}));
+    const msg = u?.message || u?.edited_message || u?.channel_post;
+    const chatId = msg?.chat?.id;
+    const raw = String(msg?.text || '').trim();
+    if (!chatId || !raw) return c.json({ ok: true });
+
+    const fromId = String(msg?.from?.id || '');
+    const admin = String(env.ADMIN_ID || '');
+    const isAdmin = !!admin && fromId === admin;
+    const bahagian = raw.split(/\s+/);
+    const cmd = String(bahagian[0] || '').toLowerCase().replace(/@\w+$/, '');
+    const asas = new URL(c.req.url).origin;
+
+    if (cmd === '/start' || cmd === '/help' || cmd === '/bantuan') {
+      await pekerjaSend(env, chatId,
+        '👷 MyWorker — servis AI berbayar (untuk bot & manusia)\n\n' +
+        pekerjaSenarai(env) +
+        '\n\nCara beli: /beli <id> <teks>\nSemak bayaran: /semak <challenge>' +
+        (isAdmin ? '\nHasil masuk: /hasil' : '') +
+        '\n\nUntuk bot lain (HTTP/x402): ' + asas + '/agent'
+      );
+    } else if (cmd === '/servis') {
+      await pekerjaSend(env, chatId, pekerjaSenarai(env) + '\n\nDaftar penuh (JSON): ' + asas + '/api/agent');
+    } else if (cmd === '/beli') {
+      const id = String(bahagian[1] || '').toLowerCase();
+      const svc = AGENT_SERVICE_META[id];
+      if (!svc) {
+        await pekerjaSend(env, chatId, 'Servis tak dikenali. Pilih salah satu:\n\n' + pekerjaSenarai(env));
+      } else {
+        const teks = bahagian.slice(2).join(' ').trim();
+        if (!teks) {
+          await pekerjaSend(env, chatId, 'Sertakan teks selepas id. Contoh:\n/beli ' + id + ' Ringkaskan teks ini…');
+        } else {
+          await ensureAgentTable(env);
+          const ch = await agentNewChallenge(env, id, teks);
+          await pekerjaSend(env, chatId,
+            '🧾 Pesanan ' + id + '\nHarga: $' + ch.usd.toFixed(4) + ' USDC (~' + (ch.lamports / 1e9).toFixed(6) + ' SOL)\n\n' +
+            'BAYAR ke dompet:\n' + ch.wallet + '\n\n' +
+            'USDC:\n' + asas + '/pay\n(pilih USDC, jumlah ' + ch.usd.toFixed(4) + ', masukkan reference di bawah)\n\n' +
+            '🔑 reference: ' + ch.ref + '\n\n' +
+            'Lepas bayar, hantar: /semak ' + ch.challenge + '\n\n' +
+            '(Bot lain boleh bayar terus: ' + asas + '/api/agent/' + id + ' dengan header X-Payment-Ref: ' + ch.ref + ')'
+          );
+        }
+      }
+    } else if (cmd === '/semak') {
+      const challenge = String(bahagian[1] || '').trim();
+      if (!challenge) {
+        await pekerjaSend(env, chatId, 'Format: /semak <challenge>');
+      } else {
+        await ensureAgentTable(env);
+        const row = (await env.DB.prepare('SELECT * FROM agent_calls WHERE challenge = ?').bind(challenge).run())?.results?.[0] || null;
+        if (!row) {
+          await pekerjaSend(env, chatId, 'Cabaran tak dijumpai.');
+        } else if (row.status === 'paid' && row.result) {
+          await pekerjaSend(env, chatId, '✅ Sudah dibayar.\n\n' + row.result);
+        } else {
+          const svc = AGENT_SERVICE_META[row.service];
+          const r = await agentSettle(env, row.service, svc, row.payload || '', { challenge });
+          await pekerjaSend(env, chatId, r.ok ? '✅ Bayaran diterima!\n\n' + r.hasil : '⏳ ' + r.reason);
+        }
+      }
+    } else if (cmd === '/hasil') {
+      if (!isAdmin) {
+        await pekerjaSend(env, chatId, 'Akses pemilik sahaja.');
+      } else {
+        await ensureAgentTable(env);
+        const [j] = (await env.DB.prepare(
+          "SELECT COUNT(*) AS jumlah, SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS dibayar, COALESCE(SUM(CASE WHEN status = 'paid' THEN price_usd ELSE 0 END),0) AS usd FROM agent_calls"
+        ).run())?.results || [];
+        const per = (await env.DB.prepare(
+          "SELECT service, COUNT(*) AS n, COALESCE(SUM(price_usd),0) AS usd FROM agent_calls WHERE status = 'paid' GROUP BY service ORDER BY n DESC"
+        ).run())?.results || [];
+        await pekerjaSend(env, chatId,
+          '💰 Hasil Agent API\n' +
+          '• Cabaran: ' + (j?.jumlah || 0) + '\n' +
+          '• Dibayar: ' + (j?.dibayar || 0) + '\n' +
+          '• Hasil: $' + Number(j?.usd || 0).toFixed(4) +
+          (per.length ? '\n\nPer servis:\n' + per.map((p) => '• ' + p.service + ': ' + p.n + ' ($' + Number(p.usd).toFixed(4) + ')').join('\n') : '')
+        );
+      }
+    } else if (cmd.startsWith('/')) {
+      await pekerjaSend(env, chatId, 'Arahan: /servis · /beli <id> <teks> · /semak <challenge>');
+    }
+
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error('webhook-pekerja ralat:', err?.message || err);
+    return c.json({ ok: true });
+  }
+});
+
 export default app;

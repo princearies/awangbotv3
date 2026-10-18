@@ -11,8 +11,20 @@ CLAUDE_MODEL = "claude-sonnet-5"
 CF_MODEL_CHAIN = "@cf/qwen/qwen3-30b-a3b-fp8,@cf/openai/gpt-oss-20b,@cf/meta/llama-3.2-3b-instruct"
 # Phone ID WABA 017 HQ Jualan. Bukan rahsia, jadi duduk sini sebagai var biasa.
 # Isi dengan nombor sebenar; selagi kosong, /webhook-017 simpan lead tapi tak hantar balasan.
-# Tokennya rahsia — jangan tulis di sini: npx wrangler secret put WHATSAPP_TOKEN_017
+# Tokennya rahsia - jangan tulis di sini: npx wrangler secret put WHATSAPP_TOKEN_017
 PHONE_NUMBER_ID_017 = ""
+
+# ---- Agent API: jual servis AI kepada bot/agen lain, bayar USDC/SOL (x402) ----
+# Dompet penerima. Kosong = guna SALES_WALLET yang sama (satu dompet untuk semua).
+AGENT_WALLET = ""
+# Kunci untuk /api/agent/stats?key= (hasil Agent API). Kosong = stats dimatikan.
+AGENT_STATS_KEY = "d68aa3b0811f4dbda6b2"
+# "devnet" untuk ujian sahaja. Kosong = mainnet.
+SOL_NETWORK = ""
+# RPC tersuai (Helius/QuickNode lebih stabil). Kosong = RPC awam Solana.
+SOL_RPC = ""
+# Harga servis (USD) - boleh ubah tanpa deploy. Kosong = harga lalai dalam kod.
+AGENT_PRICES = ""
 
 [[d1_databases]]
 binding = "DB"

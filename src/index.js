@@ -1128,7 +1128,7 @@ app.get('/api/catalog-shop', async (c) => {
     await ensureProductsTable(c.env);
     if (!c.env?.DB) return c.json({ ok: true, products: [] });
     const r = await c.env.DB.prepare(
-      "SELECT slug, nama, harga, gambar, penerangan, kategori, sizes, colors FROM products WHERE aktif = 1 AND kategori IN ('baju', 'accessory') ORDER BY id"
+      "SELECT slug, nama, harga, gambar, penerangan, kategori, sizes, colors FROM products WHERE aktif = 1 AND kategori IN ('baju', 'accessory', 'gadget', 'rumah') ORDER BY id"
     ).run();
     return c.json({ ok: true, products: r?.results || [] });
   } catch (e) {

@@ -143,6 +143,7 @@ const CLAUDE_MAX_TOKENS = 1024;
 // Bila prepaid habis, flip suis ini supaya tak cuba Claude lagi
 // dalam isolate yang sama. Jimat latency setiap request.
 let claudeDisabled = false;
+let geminiDisabled = false; // 404 berulang -> jangan buang masa lagi
 let claudeDisabledReason = '';
 
 // Model Workers AI yang gagal, lumpuhkan supaya tak dicuba berulang
@@ -364,28 +365,37 @@ async function askGemini(env, message, systemPrompt, history = [], opts = {}) {
 async function askAi(env, message, customPrompt = null, history = []) {
   const systemPrompt = customPrompt || AWANGBOT_PROMPT;
 
-  // 1. Gemini free dulu (kalau ada key)
-  if (env?.GEMINI_API_KEY) {
-    try {
-      const out = await askGemini(env, message, systemPrompt, history);
-      if (out) return out;
-    } catch (err) {
-      console.warn('Gemini gagal, fallback:', err?.message || err);
-    }
-  }
+  // Had masa setiap penyedia — elak permintaan tergantung sampai pelanggan give up.
+  const hadMasa = (janji, ms, label) => Promise.race([
+    janji,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' tamat masa ' + ms + 'ms')), ms)),
+  ]);
 
-  // 2. Workers AI free
+  // 1. Workers AI (percuma, ~1s) — UTAMA sekarang
   try {
-    const out = await askWorkersAi(env, message, systemPrompt, history);
+    const out = await hadMasa(askWorkersAi(env, message, systemPrompt, history), 9000, 'CF');
     if (out) return out;
   } catch (err) {
-    console.error('Workers AI error:', err);
+    console.warn('Workers AI gagal:', err?.message || err);
+  }
+
+  // 2. Gemini — sandaran (auto-lumpuh kalau 404 berulang)
+  if (env?.GEMINI_API_KEY && !geminiDisabled) {
+    try {
+      const out = await hadMasa(askGemini(env, message, systemPrompt, history), 8000, 'Gemini');
+      if (out) return out;
+      geminiDisabled = true;
+      console.warn('Gemini tiada model sah — dilumpuhkan untuk sesi ini');
+    } catch (err) {
+      geminiDisabled = true;
+      console.warn('Gemini gagal:', err?.message || err);
+    }
   }
 
   // 3. Claude prepaid — last resort saja ($5 trial cepat habis)
   if (!claudeDisabled && env?.ANTHROPIC_API_KEY) {
     try {
-      const out = await askClaude(env, message, systemPrompt, history);
+      const out = await hadMasa(askClaude(env, message, systemPrompt, history), 9000, 'Claude');
       if (out) return out;
     } catch (err) {
       console.warn('Claude request gagal:', err?.message || err);

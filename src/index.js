@@ -958,6 +958,28 @@ app.get('/', (c) => {
   `);
 });
 
+// Ambil senarai produk aktif dari D1 untuk disuntik ke prompt AI.
+// Tujuan: bot WhatsApp tahu harga/nama barang sebenar (jangan reka harga).
+async function katalogPrompt(env) {
+  try {
+    if (!env?.DB) return '';
+    const r = await env.DB.prepare(
+      'SELECT nama, harga, penerangan FROM products WHERE aktif = 1 ORDER BY id DESC LIMIT 30'
+    ).all();
+    const rows = r?.results || [];
+    if (!rows.length) return '';
+    const senarai = rows.map((p) => {
+      const harga = Number(p.harga || 0).toFixed(2);
+      const nota = String(p.penerangan || '').replace(/\s+/g, ' ').slice(0, 110);
+      return `• ${p.nama} — RM${harga}${nota ? ' — ' + nota : ''}`;
+    }).join('\n');
+    return `\n\nKATALOG SEMASA (harga ini SAH — jangan reka harga/stok lain):\n${senarai}\n\nBila customer tanya barang/harga, jawab terus dari senarai di atas dan tanya qty. Kalau barang tiada dalam senarai, kata "barang tu tak masuk stok lagi boss". Semua harga sudah termasuk pos (15-30 hari), opsyen laju +RM5 boleh disebut.`;
+  } catch (e) {
+    console.warn('katalogPrompt gagal:', e?.message);
+    return '';
+  }
+}
+
 // ----------------- API ROUTINGS (WEB PORTAL) -----------------
 app.post('/api/chat', async (c) => {
   const body = await c.req.json().catch(() => ({}));
@@ -989,7 +1011,8 @@ app.post('/api/dropship-chat', async (c) => {
   // Tanya pasal BOT (pakej/setup/sewa) -> jawab jualan bot, bukan dropship (kecuali jelas pasal order/tracking/bayar)
   const isBotSales = /(bot|pakej|package|awangbot|setup bot|sewa bot|buat bot|nak bot|beli bot|bot whatsapp|bot telegram)/i.test(text)
     && !/(order|tracking|trek|sampai bila|dah pos|refund|return|resit|transfer|bayar|payment|confirm|setuju)/i.test(text);
-  const salesPrompt = isBotSales ? PROMPT_017 : (lang === 'ms' ? PROMPT_DROPSHIP : PROMPT_DROPSHIP_EN);
+  const basePrompt = isBotSales ? PROMPT_017 : (lang === 'ms' ? PROMPT_DROPSHIP : PROMPT_DROPSHIP_EN);
+  const salesPrompt = isBotSales ? basePrompt : basePrompt + await katalogPrompt(c.env);
   let reply = await askAi(c.env, text, salesPrompt, history);
   // Auto-save order: jalan bila ada no telefon / SETUJU / CONFIRM, dan belum pernah simpan (bukan chat jualan bot)
   if (useMemory && !isBotSales) {

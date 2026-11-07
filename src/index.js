@@ -1137,7 +1137,7 @@ app.get('/api/catalog-shop', async (c) => {
   }
 });
 
-// Halaman bayaran: DuitNow (MY) / SOL / USDC / PayPal (global)
+// Halaman bayaran: DuitNow (MY) / SOL / USDC / PayPal / Payoneer (global)
 app.get('/pay', async (c) => {
   const orderId = String(c.req.query('order') || '').slice(0, 12);
   const isDonate = String(c.req.query('donate') || '') === '1';
@@ -1155,11 +1155,12 @@ app.get('/pay', async (c) => {
 <h1 class="font-bold text-lg">${isDonate ? 'MyKira Niaga — Derma ☕' : 'MyKira Niaga — Bayaran'}</h1>
 <p id="orderLine" class="text-xs text-slate-400">${orderId ? 'Order #' + escapeHtml(orderId) : 'Isi butiran order di bawah'}</p></div>
 <label class="block text-xs text-slate-400">Order ID (kalau ada)<input id="order" value="${escapeHtml(orderId)}" class="mt-1 w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-sm" placeholder="cth: 5"></label>
-<div class="grid grid-cols-4 gap-2">
+<div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
 <button data-pay="duitnow" class="paytab py-2.5 rounded-xl font-bold text-sm bg-pink-600">DuitNow</button>
 <button data-pay="SOL" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">◎ SOL</button>
 <button data-pay="USDC" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">$ USDC</button>
-<button data-pay="paypal" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">PayPal</button></div>
+<button data-pay="paypal" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">PayPal</button>
+<button data-pay="payoneer" class="paytab py-2.5 rounded-xl font-bold text-sm bg-white/10 border border-white/10">Payoneer</button></div>
 <div id="panel-duitnow">
 <div class="text-center">${duitnowQR ? '<img id="dnqr" class="mx-auto rounded-2xl border border-white/10" width="220" height="220" alt="DuitNow QR">' : '<p class="text-xs text-amber-300">QR DuitNow belum diset — WS admin 017.</p>'}
 <p class="text-xs text-slate-300 mt-2">AWANG AZAMAN @ AZMAN BIN<br><span class="text-slate-500">Scan dengan mana-mana bank / e-wallet MY, isi jumlah ikut order</span></p></div>
@@ -1173,6 +1174,11 @@ app.get('/pay', async (c) => {
 </div>
 <div id="panel-paypal" class="hidden text-center">
 ${paypalMe ? '<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(paypalMe) + '" class="mx-auto rounded-2xl border border-white/10" width="220" height="220" alt="PayPal QR"><a id="ppBtn" href="#" class="inline-block w-full bg-sky-500 hover:bg-sky-400 font-bold py-3 rounded-xl text-sm mt-3">Bayar dengan PayPal →</a><p class="text-[11px] text-slate-500 mt-2">Fee PayPal ~4-5% ditanggung pembeli. Tulis Order ID dalam nota PayPal.</p>' : '<p class="text-xs text-amber-300">PayPal belum diset — WS admin 017.</p>'}
+</div>
+<div id="panel-payoneer" class="hidden text-center space-y-3">
+<p class="text-xs text-slate-300">Untuk klien antarabangsa — bayar dengan kad kredit/debit, bank transfer atau baki Payoneer. Selamat, pantas dan tiada akaun Payoneer diperlukan.</p>
+<a href="https://link.payoneer.com/Token?t=E05EA3CE1B914D958873752CE8CE1E5E&amp;src=tpl" target="_blank" rel="noopener noreferrer" class="block w-full bg-orange-500 hover:bg-orange-400 font-bold py-3 rounded-xl text-sm">Bayar dengan Payoneer →</a>
+<p class="text-[11px] text-slate-500">Tulis <b>Order ID</b> dalam nota pembayaran. Fee Payoneer ditanggung pembeli. Hantar resit ke WhatsApp 017 selepas bayar.</p>
 </div>
 <p class="text-[11px] text-slate-500">Lepas bayar hantar <b>resit / tx signature</b> ke WhatsApp 017. Order diproses selepas bayaran disahkan.</p>
 <a href="https://wa.me/60173735431" class="block text-center w-full bg-emerald-500 hover:bg-emerald-400 font-bold py-3 rounded-xl text-sm">Sahkan via WhatsApp 017</a>
@@ -1198,9 +1204,10 @@ function refresh(){
 }
 function showTab(t){
   token=t;
-  ['duitnow','crypto','paypal'].forEach(function(p){document.getElementById('panel-'+p).classList.add('hidden')});
+  ['duitnow','crypto','paypal','payoneer'].forEach(function(p){document.getElementById('panel-'+p).classList.add('hidden')});
   if(t==='duitnow')document.getElementById('panel-duitnow').classList.remove('hidden');
   else if(t==='paypal')document.getElementById('panel-paypal').classList.remove('hidden');
+  else if(t==='payoneer')document.getElementById('panel-payoneer').classList.remove('hidden');
   else document.getElementById('panel-crypto').classList.remove('hidden');
   var btns=document.querySelectorAll('.paytab');
   btns.forEach(function(b){var on=b.getAttribute('data-pay')===t;b.className='paytab py-2.5 rounded-xl font-bold text-sm '+(on?'bg-pink-600':'bg-white/10 border border-white/10')});
@@ -1593,6 +1600,62 @@ async function handleWhatsAppMessage(c) {
 
     const from = msg.from;
     const text = String(msg.text.body || '').trim();
+    const low = text.toLowerCase();
+
+    const isAdmin = from.endsWith('168355431') || from.endsWith('173735431');
+
+    const ensureTable = async () => {
+      try { await c.env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+      ).run(); } catch (e) {}
+    };
+
+    const getFlag = async (key) => {
+      try {
+        await ensureTable();
+        const r = await c.env.DB.prepare("SELECT value FROM settings WHERE key=?").bind(key).first();
+        return r ? String(r.value) : '0';
+      } catch (e) { return '0'; }
+    };
+    const setFlag = async (key, val) => {
+      try {
+        await ensureTable();
+        await c.env.DB.prepare(
+          "INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+        ).bind(key, val).run();
+      } catch (e) {}
+    };
+
+    const sendWa = async (to, bodyText) => {
+      const token = c.env.WHATSAPP_TOKEN || c.env.ACCESS_TOKEN;
+      const phoneId = c.env.WHATSAPP_PHONE_ID || c.env.PHONE_NUMBER_ID;
+      if (token && phoneId) {
+        try {
+          await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messaging_product: 'whatsapp', to, text: { body: bodyText } }),
+          });
+        } catch (e) {}
+      }
+    };
+
+    if (isAdmin && (low === '/diam' || low.startsWith('/diam '))) {
+      await setFlag('wa_diam', '1');
+      await sendWa(from, 'OK, saya diam dulu. Bot takkan auto-reply mesej WhatsApp. Taip /cakap untuk aktifkan balik.');
+      return c.json({ ok: true });
+    }
+    if (isAdmin && (low === '/cakap' || low.startsWith('/cakap '))) {
+      await setFlag('wa_diam', '0');
+      await sendWa(from, 'OK, saya cakap balik. Bot auto-reply aktif semula.');
+      return c.json({ ok: true });
+    }
+
+    const diam = await getFlag('wa_diam');
+    if (diam === '1') {
+      try { await saveLead(c.env, `WhatsApp (${from})`, text); } catch (e) {}
+      return c.json({ ok: true });
+    }
 
     try {
       const aiReply = await askAi(c.env, text, AWANGBOT_PROMPT);
@@ -1623,6 +1686,7 @@ async function handleWhatsAppMessage(c) {
 
   return c.json({ ok: true });
 }
+
 
 // Sokong kedua-dua laluan endpoint WhatsApp
 app.get('/webhook/whatsapp', handleWhatsAppVerify);

@@ -1144,6 +1144,12 @@ app.get('/pay', async (c) => {
   const wallet = salesWallet(c.env);
   const duitnowQR = String(c.env?.DUITNOW_QR || '');
   const paypalMe = String(c.env?.PAYPAL_ME || '');
+  const anon = String(c.req.query('anon') || '').slice(0, 80);
+  const shipNama = String(c.req.query('nama') || '').slice(0, 60);
+  const shipPhone = String(c.req.query('phone') || '').slice(0, 30);
+  const shipAlamat = String(c.req.query('alamat') || '').slice(0, 300);
+  const shipTotal = String(c.req.query('total') || '').slice(0, 12);
+  const hasShip = Boolean(shipNama || shipPhone || shipAlamat);
   return c.html(`<!DOCTYPE html>
 <html lang="ms"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1154,6 +1160,12 @@ app.get('/pay', async (c) => {
 <div class="text-center"><div class="text-2xl">💳</div>
 <h1 class="font-bold text-lg">${isDonate ? 'MyKira Niaga — Derma ☕' : 'MyKira Niaga — Bayaran'}</h1>
 <p id="orderLine" class="text-xs text-slate-400">${orderId ? 'Order #' + escapeHtml(orderId) : 'Isi butiran order di bawah'}</p></div>
+${hasShip ? `<div class="text-left bg-slate-800/70 border border-white/10 rounded-xl p-3 text-xs text-slate-300 space-y-1">
+<p class="font-bold text-slate-100">📦 Penghantaran${shipTotal ? ' · RM' + escapeHtml(shipTotal) : ''}</p>
+<p>${escapeHtml(shipNama)}${shipPhone ? ' · ' + escapeHtml(shipPhone) : ''}</p>
+${shipAlamat ? `<p class="text-slate-400">${escapeHtml(shipAlamat)}</p>` : ''}
+${anon ? `<p class="text-[10px] text-slate-500 break-all">Customer: ${escapeHtml(anon)}</p>` : ''}
+</div>` : ''}
 <label class="block text-xs text-slate-400">Order ID (kalau ada)<input id="order" value="${escapeHtml(orderId)}" class="mt-1 w-full bg-slate-800 border border-white/10 rounded-xl px-3 py-2 text-sm" placeholder="cth: 5"></label>
 <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
 <button data-pay="duitnow" class="paytab py-2.5 rounded-xl font-bold text-sm bg-pink-600">DuitNow</button>
@@ -1181,7 +1193,7 @@ ${paypalMe ? '<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220
 <p class="text-[11px] text-slate-500">Tulis <b>Order ID</b> dalam nota pembayaran. Fee Payoneer ditanggung pembeli. Hantar resit ke WhatsApp 017 selepas bayar.</p>
 </div>
 <p class="text-[11px] text-slate-500">Lepas bayar hantar <b>resit / tx signature</b> ke WhatsApp 017. Order diproses selepas bayaran disahkan.</p>
-<a href="https://wa.me/60173735431" class="block text-center w-full bg-emerald-500 hover:bg-emerald-400 font-bold py-3 rounded-xl text-sm">Sahkan via WhatsApp 017</a>
+<a href="https://wa.me/60173735431?text=${encodeURIComponent('Saya nak bayar order ' + (orderId || '') + (shipTotal ? ' RM' + shipTotal : '') + (shipNama ? ' — ' + shipNama : '') + (shipAlamat ? ' | ' + shipAlamat : ''))}" target="_blank" rel="noopener" class="block text-center w-full bg-emerald-500 hover:bg-emerald-400 font-bold py-3 rounded-xl text-sm">Sahkan via WhatsApp 017</a>
 </div>
 <script>
 var wallet="${wallet}", usdcMint="${USDC_MINT}", token="duitnow", isDonate=${isDonate ? '1' : '0'};
